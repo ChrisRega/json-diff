@@ -101,8 +101,8 @@ pub fn match_json(
             Mismatch::new(left_only_keys, right_only_keys, unequal_keys)
         }
         (Value::Array(a), Value::Array(b)) => {
-            let a = preprocess_array(sort_arrays, a);
-            let b = preprocess_array(sort_arrays, b);
+            let a = preprocess_array(sort_arrays, a, ignore_keys);
+            let b = preprocess_array(sort_arrays, b, ignore_keys);
 
             let mut replaced = Vec::new();
             let mut deleted = Vec::new();
@@ -177,17 +177,21 @@ pub fn match_json(
     }
 }
 
-fn preprocess_array(sort_arrays: bool, a: &Vec<Value>) -> Cow<Vec<Value>> {
-    if sort_arrays {
+fn preprocess_array<'a>(
+    sort_arrays: bool,
+    a: &'a Vec<Value>,
+    ignore_keys: &[Regex],
+) -> Cow<'a, Vec<Value>> {
+    if sort_arrays || !ignore_keys.is_empty() {
         let mut owned = a.to_owned();
-        owned.sort_by(compare_values);
+        owned.sort_by(|a, b| compare_values(a, b, ignore_keys));
         Cow::Owned(owned)
     } else {
         Cow::Borrowed(a)
     }
 }
 
-fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
+fn compare_values(a: &Value, b: &Value, ignore_keys: &[Regex]) -> std::cmp::Ordering {
     match (a, b) {
         (Value::Null, Value::Null) => std::cmp::Ordering::Equal,
         (Value::Null, _) => std::cmp::Ordering::Less,
@@ -205,10 +209,10 @@ fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
         }
         (Value::String(a), Value::String(b)) => a.cmp(b),
         (Value::Array(a), Value::Array(b)) => {
-            let a = preprocess_array(true, a);
-            let b = preprocess_array(true, b);
+            let a = preprocess_array(true, a, ignore_keys);
+            let b = preprocess_array(true, b, ignore_keys);
             for (a, b) in a.iter().zip(b.iter()) {
-                let cmp = compare_values(a, b);
+                let cmp = compare_values(a, b, ignore_keys);
                 if cmp != std::cmp::Ordering::Equal {
                     return cmp;
                 }
@@ -220,14 +224,22 @@ fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
             let mut keys_b: Vec<_> = b.keys().collect();
             keys_a.sort();
             keys_b.sort();
-            for (key_a, key_b) in keys_a.iter().zip(keys_b.iter()) {
+            for (key_a, key_b) in keys_a
+                .iter()
+                .filter(|a| ignore_keys.iter().all(|r| !r.is_match(a)))
+                .zip(
+                    keys_b
+                        .iter()
+                        .filter(|a| ignore_keys.iter().all(|r| !r.is_match(a))),
+                )
+            {
                 let cmp = key_a.cmp(key_b);
                 if cmp != std::cmp::Ordering::Equal {
                     return cmp;
                 }
                 let value_a = &a[*key_a];
                 let value_b = &b[*key_b];
-                let cmp = compare_values(value_a, value_b);
+                let cmp = compare_values(value_a, value_b, ignore_keys);
                 if cmp != std::cmp::Ordering::Equal {
                     return cmp;
                 }
@@ -330,6 +342,49 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn sorting_ignores_ignored_keys() {
+        let data1: Value =
+            serde_json::from_str(r#"[{"a": 1, "b":2 }, { "a": 2, "b" : 1 }]"#).unwrap();
+        let ignore = [Regex::new("a").unwrap()];
+        let sorted_ignores = preprocess_array(true, data1.as_array().unwrap(), &ignore);
+        let sorted_no_ignores = preprocess_array(true, data1.as_array().unwrap(), &[]);
+
+        assert_eq!(
+            sorted_ignores
+                .first()
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .get("b")
+                .unwrap()
+                .as_i64()
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            sorted_no_ignores
+                .first()
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .get("b")
+                .unwrap()
+                .as_i64()
+                .unwrap(),
+            2
+        );
+    }
+
+    #[test]
+    fn test_arrays_sorted_objects_ignored() {
+        let data1 = r#"[{"c": {"d": "e"} },"b","c"]"#;
+        let data2 = r#"["b","c",{"c": {"d": "f"} }]"#;
+        let ignore = Regex::new("d").unwrap();
+        let diff = compare_jsons(data1, data2, true, &[ignore]).unwrap();
+        assert!(diff.is_empty());
+    }
 
     #[test]
     fn test_arrays_sorted_simple() {
