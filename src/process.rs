@@ -1,19 +1,25 @@
-use diffs::{myers, Diff, Replace};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::enums::Error;
+use diffs::{Diff, myers, Replace};
+use regex::Regex;
 use serde_json::Map;
 use serde_json::Value;
 
 use crate::ds::key_node::KeyNode;
 use crate::ds::mismatch::Mismatch;
+use crate::enums::Error;
 
-pub fn compare_jsons(a: &str, b: &str, sort_arrays: bool) -> Result<Mismatch, Error> {
+pub fn compare_jsons(
+    a: &str,
+    b: &str,
+    sort_arrays: bool,
+    ignore_keys: &[Regex],
+) -> Result<Mismatch, Error> {
     let value1 = serde_json::from_str(a)?;
     let value2 = serde_json::from_str(b)?;
-    Ok(match_json(&value1, &value2, sort_arrays))
+    Ok(match_json(&value1, &value2, sort_arrays, ignore_keys))
 }
 fn values_to_node(vec: Vec<(usize, &Value)>) -> KeyNode {
     if vec.is_empty() {
@@ -61,28 +67,37 @@ impl<'a> Diff for ListDiffHandler<'a> {
     }
 }
 
-pub fn match_json(value1: &Value, value2: &Value, sort_arrays: bool) -> Mismatch {
+pub fn match_json(
+    value1: &Value,
+    value2: &Value,
+    sort_arrays: bool,
+    ignore_keys: &[Regex],
+) -> Mismatch {
     match (value1, value2) {
         (Value::Object(a), Value::Object(b)) => {
-            let diff = intersect_maps(a, b);
+            let diff = intersect_maps(a, b, ignore_keys);
             let mut left_only_keys = get_map_of_keys(diff.left_only);
             let mut right_only_keys = get_map_of_keys(diff.right_only);
             let intersection_keys = diff.intersection;
 
             let mut unequal_keys = KeyNode::Nil;
 
-            if let Some(intersection_keys) = intersection_keys {
-                for key in intersection_keys {
-                    let Mismatch {
-                        left_only_keys: l,
-                        right_only_keys: r,
-                        keys_in_both: u,
-                    } = match_json(a.get(&key).unwrap(), b.get(&key).unwrap(), sort_arrays);
-                    left_only_keys = insert_child_key_map(left_only_keys, l, &key);
-                    right_only_keys = insert_child_key_map(right_only_keys, r, &key);
-                    unequal_keys = insert_child_key_map(unequal_keys, u, &key);
-                }
+            for key in intersection_keys {
+                let Mismatch {
+                    left_only_keys: l,
+                    right_only_keys: r,
+                    keys_in_both: u,
+                } = match_json(
+                    a.get(&key).unwrap(),
+                    b.get(&key).unwrap(),
+                    sort_arrays,
+                    ignore_keys,
+                );
+                left_only_keys = insert_child_key_map(left_only_keys, l, &key);
+                right_only_keys = insert_child_key_map(right_only_keys, r, &key);
+                unequal_keys = insert_child_key_map(unequal_keys, u, &key);
             }
+
             Mismatch::new(left_only_keys, right_only_keys, unequal_keys)
         }
         (Value::Array(a), Value::Array(b)) => {
@@ -131,7 +146,7 @@ pub fn match_json(value1: &Value, value2: &Value, sort_arrays: bool) -> Mismatch
                     let inner_a = a.get(o + i).unwrap_or(&Value::Null);
                     let inner_b = b.get(n + i).unwrap_or(&Value::Null);
 
-                    let cdiff = match_json(inner_a, inner_b, sort_arrays);
+                    let cdiff = match_json(inner_a, inner_b, sort_arrays, ignore_keys);
                     let position = o + i;
                     let Mismatch {
                         left_only_keys: l,
@@ -230,8 +245,8 @@ fn compare_values(a: &Value, b: &Value) -> std::cmp::Ordering {
     }
 }
 
-fn get_map_of_keys(set: Option<HashSet<String>>) -> KeyNode {
-    if let Some(set) = set {
+fn get_map_of_keys(set: HashSet<String>) -> KeyNode {
+    if !set.is_empty() {
         KeyNode::Node(
             set.iter()
                 .map(|key| (String::from(key), KeyNode::Nil))
@@ -259,16 +274,16 @@ fn insert_child_key_map(parent: KeyNode, child: KeyNode, key: &String) -> KeyNod
 }
 
 struct MapDifference {
-    left_only: Option<HashSet<String>>,
-    right_only: Option<HashSet<String>>,
-    intersection: Option<HashSet<String>>,
+    left_only: HashSet<String>,
+    right_only: HashSet<String>,
+    intersection: HashSet<String>,
 }
 
 impl MapDifference {
     pub fn new(
-        left_only: Option<HashSet<String>>,
-        right_only: Option<HashSet<String>>,
-        intersection: Option<HashSet<String>>,
+        left_only: HashSet<String>,
+        right_only: HashSet<String>,
+        intersection: HashSet<String>,
     ) -> Self {
         Self {
             right_only,
@@ -278,43 +293,49 @@ impl MapDifference {
     }
 }
 
-fn intersect_maps(a: &Map<String, Value>, b: &Map<String, Value>) -> MapDifference {
+fn intersect_maps(
+    a: &Map<String, Value>,
+    b: &Map<String, Value>,
+    ignore_keys: &[Regex],
+) -> MapDifference {
     let mut intersection = HashSet::new();
     let mut left = HashSet::new();
+
     let mut right = HashSet::new();
-    for a_key in a.keys() {
+    for a_key in a
+        .keys()
+        .filter(|k| ignore_keys.iter().all(|r| !r.is_match(k.as_str())))
+    {
         if b.contains_key(a_key) {
             intersection.insert(String::from(a_key));
         } else {
             left.insert(String::from(a_key));
         }
     }
-    for b_key in b.keys() {
+    for b_key in b
+        .keys()
+        .filter(|k| ignore_keys.iter().all(|r| !r.is_match(k.as_str())))
+    {
         if !a.contains_key(b_key) {
             right.insert(String::from(b_key));
         }
     }
-    let left = if left.is_empty() { None } else { Some(left) };
-    let right = if right.is_empty() { None } else { Some(right) };
-    let intersection = if intersection.is_empty() {
-        None
-    } else {
-        Some(intersection)
-    };
+
     MapDifference::new(left, right, intersection)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use maplit::hashmap;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn test_arrays_sorted_simple() {
         let data1 = r#"["a","b","c"]"#;
         let data2 = r#"["b","c","a"]"#;
-        let diff = compare_jsons(data1, data2, true).unwrap();
+        let diff = compare_jsons(data1, data2, true, &[]).unwrap();
         assert!(diff.is_empty());
     }
 
@@ -322,7 +343,7 @@ mod tests {
     fn test_arrays_sorted_objects() {
         let data1 = r#"[{"c": {"d": "e"} },"b","c"]"#;
         let data2 = r#"["b","c",{"c": {"d": "e"} }]"#;
-        let diff = compare_jsons(data1, data2, true).unwrap();
+        let diff = compare_jsons(data1, data2, true, &[]).unwrap();
         assert!(diff.is_empty());
     }
 
@@ -330,7 +351,7 @@ mod tests {
     fn test_arrays_deep_sorted_objects() {
         let data1 = r#"[{"c": ["d","e"] },"b","c"]"#;
         let data2 = r#"["b","c",{"c": ["e", "d"] }]"#;
-        let diff = compare_jsons(data1, data2, true).unwrap();
+        let diff = compare_jsons(data1, data2, true, &[]).unwrap();
         assert!(diff.is_empty());
     }
 
@@ -338,7 +359,7 @@ mod tests {
     fn test_arrays_deep_sorted_objects_with_arrays() {
         let data1 = r#"[{"a": [{"b": ["3", "1"]}] }, {"a": [{"b": ["2", "3"]}] }]"#;
         let data2 = r#"[{"a": [{"b": ["2", "3"]}] }, {"a": [{"b": ["1", "3"]}] }]"#;
-        let diff = compare_jsons(data1, data2, true).unwrap();
+        let diff = compare_jsons(data1, data2, true, &[]).unwrap();
         assert!(diff.is_empty());
     }
 
@@ -346,7 +367,7 @@ mod tests {
     fn test_arrays_deep_sorted_objects_with_outer_diff() {
         let data1 = r#"[{"c": ["d","e"] },"b"]"#;
         let data2 = r#"["b","c",{"c": ["e", "d"] }]"#;
-        let diff = compare_jsons(data1, data2, true).unwrap();
+        let diff = compare_jsons(data1, data2, true, &[]).unwrap();
         assert!(!diff.is_empty());
         let insertions = diff.right_only_keys.absolute_keys_to_vec(None);
         assert_eq!(insertions.len(), 1);
@@ -357,7 +378,7 @@ mod tests {
     fn test_arrays_deep_sorted_objects_with_inner_diff() {
         let data1 = r#"["a",{"c": ["d","e", "f"] },"b"]"#;
         let data2 = r#"["b",{"c": ["e","d"] },"a"]"#;
-        let diff = compare_jsons(data1, data2, true).unwrap();
+        let diff = compare_jsons(data1, data2, true, &[]).unwrap();
         assert!(!diff.is_empty());
         let deletions = diff.left_only_keys.absolute_keys_to_vec(None);
 
@@ -372,7 +393,7 @@ mod tests {
     fn test_arrays_deep_sorted_objects_with_inner_diff_mutation() {
         let data1 = r#"["a",{"c": ["d", "f"] },"b"]"#;
         let data2 = r#"["b",{"c": ["e","d"] },"a"]"#;
-        let diff = compare_jsons(data1, data2, true).unwrap();
+        let diff = compare_jsons(data1, data2, true, &[]).unwrap();
         assert!(!diff.is_empty());
         let diffs = diff.keys_in_both.absolute_keys_to_vec(None);
 
@@ -387,7 +408,7 @@ mod tests {
     fn test_arrays_simple_diff() {
         let data1 = r#"["a","b","c"]"#;
         let data2 = r#"["a","b","d"]"#;
-        let diff = compare_jsons(data1, data2, false).unwrap();
+        let diff = compare_jsons(data1, data2, false, &[]).unwrap();
         assert_eq!(diff.left_only_keys, KeyNode::Nil);
         assert_eq!(diff.right_only_keys, KeyNode::Nil);
         let diff = diff.keys_in_both.absolute_keys_to_vec(None);
@@ -399,7 +420,7 @@ mod tests {
     fn test_arrays_more_complex_diff() {
         let data1 = r#"["a","b","c"]"#;
         let data2 = r#"["a","a","b","d"]"#;
-        let diff = compare_jsons(data1, data2, false).unwrap();
+        let diff = compare_jsons(data1, data2, false, &[]).unwrap();
 
         let changes_diff = diff.keys_in_both.absolute_keys_to_vec(None);
         assert_eq!(diff.left_only_keys, KeyNode::Nil);
@@ -418,7 +439,7 @@ mod tests {
     fn test_arrays_extra_left() {
         let data1 = r#"["a","b","c"]"#;
         let data2 = r#"["a","b"]"#;
-        let diff = compare_jsons(data1, data2, false).unwrap();
+        let diff = compare_jsons(data1, data2, false, &[]).unwrap();
 
         let diffs = diff.left_only_keys.absolute_keys_to_vec(None);
         assert_eq!(diffs.len(), 1);
@@ -431,7 +452,7 @@ mod tests {
     fn test_arrays_extra_right() {
         let data1 = r#"["a","b"]"#;
         let data2 = r#"["a","b","c"]"#;
-        let diff = compare_jsons(data1, data2, false).unwrap();
+        let diff = compare_jsons(data1, data2, false, &[]).unwrap();
 
         let diffs = diff.right_only_keys.absolute_keys_to_vec(None);
         assert_eq!(diffs.len(), 1);
@@ -444,7 +465,7 @@ mod tests {
     fn long_insertion_modification() {
         let data1 = r#"["a","b","a"]"#;
         let data2 = r#"["a","c","c","c","a"]"#;
-        let diff = compare_jsons(data1, data2, false).unwrap();
+        let diff = compare_jsons(data1, data2, false, &[]).unwrap();
         let diffs = diff.keys_in_both.absolute_keys_to_vec(None);
 
         assert_eq!(diffs.len(), 3);
@@ -460,7 +481,7 @@ mod tests {
     fn test_arrays_object_extra() {
         let data1 = r#"["a","b"]"#;
         let data2 = r#"["a","b", {"c": {"d": "e"} }]"#;
-        let diff = compare_jsons(data1, data2, false).unwrap();
+        let diff = compare_jsons(data1, data2, false, &[]).unwrap();
 
         let diffs = diff.right_only_keys.absolute_keys_to_vec(None);
         assert_eq!(diffs.len(), 1);
@@ -543,7 +564,7 @@ mod tests {
         });
         let expected = Mismatch::new(expected_left, expected_right, expected_uneq);
 
-        let mismatch = compare_jsons(data1, data2, false).unwrap();
+        let mismatch = compare_jsons(data1, data2, false, &[]).unwrap();
         assert_eq!(mismatch, expected, "Diff was incorrect.");
     }
 
@@ -579,7 +600,7 @@ mod tests {
         }"#;
 
         assert_eq!(
-            compare_jsons(data1, data2, false).unwrap(),
+            compare_jsons(data1, data2, false, &[]).unwrap(),
             Mismatch::new(KeyNode::Nil, KeyNode::Nil, KeyNode::Nil)
         );
     }
@@ -590,7 +611,7 @@ mod tests {
         let data2 = r#"{}"#;
 
         assert_eq!(
-            compare_jsons(data1, data2, false).unwrap(),
+            compare_jsons(data1, data2, false, &[]).unwrap(),
             Mismatch::new(KeyNode::Nil, KeyNode::Nil, KeyNode::Nil)
         );
     }
@@ -599,7 +620,7 @@ mod tests {
     fn parse_err_source_one() {
         let invalid_json1 = r#"{invalid: json}"#;
         let valid_json2 = r#"{"a":"b"}"#;
-        match compare_jsons(invalid_json1, valid_json2, false) {
+        match compare_jsons(invalid_json1, valid_json2, false, &[]) {
             Ok(_) => panic!("This shouldn't be an Ok"),
             Err(err) => {
                 matches!(err, Error::JSON(_));
@@ -611,7 +632,7 @@ mod tests {
     fn parse_err_source_two() {
         let valid_json1 = r#"{"a":"b"}"#;
         let invalid_json2 = r#"{invalid: json}"#;
-        match compare_jsons(valid_json1, invalid_json2, false) {
+        match compare_jsons(valid_json1, invalid_json2, false, &[]) {
             Ok(_) => panic!("This shouldn't be an Ok"),
             Err(err) => {
                 matches!(err, Error::JSON(_));
