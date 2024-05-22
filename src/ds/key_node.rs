@@ -1,65 +1,54 @@
-use crate::enums::ValueType;
-use serde_json::Value;
 use std::collections::HashMap;
+
+use serde_json::Value;
+
+use crate::enums::{DiffEntry, PathElement};
 
 #[derive(Debug, PartialEq)]
 pub enum KeyNode {
     Nil,
     Value(Value, Value),
     Node(HashMap<String, KeyNode>),
-}
-
-fn truncate(s: &str, max_chars: usize) -> String {
-    match s.char_indices().nth(max_chars) {
-        None => String::from(s),
-        Some((idx, _)) => {
-            let shorter = &s[..idx];
-            let snip = "//SNIP//";
-            let new_s = format!("{}{}", shorter, snip);
-            new_s
-        }
-    }
+    Array(Vec<(usize, KeyNode)>),
 }
 
 impl KeyNode {
-    pub fn absolute_keys_to_vec(&self, max_display_length: Option<usize>) -> Vec<ValueType> {
-        let mut vec = Vec::new();
-        self.absolute_keys(&mut vec, None, max_display_length);
-        vec
+    pub fn get_diffs(&self) -> Vec<DiffEntry> {
+        let mut buf = Vec::new();
+        self.follow_path(&mut buf, &[]);
+        buf
     }
 
-    pub fn absolute_keys(
-        &self,
-        keys: &mut Vec<ValueType>,
-        key_from_root: Option<String>,
-        max_display_length: Option<usize>,
-    ) {
-        let max_display_length = max_display_length.unwrap_or(4000);
-        let val_key = |key: Option<String>| {
-            key.map(|mut s| {
-                s.push_str("->");
-                s
-            })
-            .unwrap_or_default()
-        };
+    pub fn follow_path(&self, diffs: &mut Vec<DiffEntry>, offset: &[PathElement]) {
         match self {
             KeyNode::Nil => {
-                if let Some(key) = key_from_root {
-                    keys.push(ValueType::new_key(key))
+                let is_map_child = offset
+                    .last()
+                    .map(|o| matches!(o, PathElement::Object(_)))
+                    .unwrap_or_default();
+                if is_map_child {
+                    diffs.push(DiffEntry {
+                        path: offset.to_vec(),
+                        values: None,
+                    });
                 }
             }
-            KeyNode::Value(a, b) => keys.push(ValueType::new_value(
-                val_key(key_from_root),
-                truncate(a.to_string().as_str(), max_display_length),
-                truncate(b.to_string().as_str(), max_display_length),
-            )),
-            KeyNode::Node(map) => {
-                for (key, value) in map {
-                    value.absolute_keys(
-                        keys,
-                        Some(format!("{}{}", val_key(key_from_root.clone()), key)),
-                        Some(max_display_length),
-                    )
+            KeyNode::Value(l, r) => diffs.push(DiffEntry {
+                path: offset.to_vec(),
+                values: Some((l.to_string(), r.to_string())),
+            }),
+            KeyNode::Node(o) => {
+                for (k, v) in o {
+                    let mut new_offset = offset.to_vec();
+                    new_offset.push(PathElement::Object(k.clone()));
+                    v.follow_path(diffs, &new_offset);
+                }
+            }
+            KeyNode::Array(v) => {
+                for (l, k) in v {
+                    let mut new_offset = offset.to_vec();
+                    new_offset.push(PathElement::ArrayEntry(*l));
+                    k.follow_path(diffs, &new_offset);
                 }
             }
         }

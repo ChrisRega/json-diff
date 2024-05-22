@@ -1,10 +1,10 @@
 [package]
 name = "json_diff_ng"
-version = "0.5.0"
+version = "0.6.0-RC1"
 authors = ["ksceriath", "ChrisRega"]
 edition = "2021"
 license = "Unlicense"
-description = "A small diff tool utility for comparing jsons. Forked from ksceriath and improved for usage as a library and with good support for array diffs."
+description = "A small diff tool utility for comparing jsons. Forked from ksceriath and improved for usage as a library and with proper support for array diffs."
 readme = "README.md"
 homepage = "https://github.com/ChrisRega/json-diff"
 repository = "https://github.com/ChrisRega/json-diff"

@@ -25,9 +25,9 @@ fn values_to_node(vec: Vec<(usize, &Value)>) -> KeyNode {
     if vec.is_empty() {
         KeyNode::Nil
     } else {
-        KeyNode::Node(
+        KeyNode::Array(
             vec.into_iter()
-                .map(|(id, val)| (format!("[l: {id}]-{}", val), KeyNode::Nil))
+                .map(|(l, v)| (l, KeyNode::Value(v.clone(), v.clone())))
                 .collect(),
         )
     }
@@ -153,11 +153,9 @@ pub fn match_json(
                         right_only_keys: r,
                         keys_in_both: u,
                     } = cdiff;
-                    left_only_nodes =
-                        insert_child_key_map(left_only_nodes, l, &format!("[l: {position}]"));
-                    right_only_nodes =
-                        insert_child_key_map(right_only_nodes, r, &format!("[l: {position}]"));
-                    diff = insert_child_key_map(diff, u, &format!("[l: {position}]"));
+                    left_only_nodes = insert_child_key_diff(left_only_nodes, l, position);
+                    right_only_nodes = insert_child_key_diff(right_only_nodes, r, position);
+                    diff = insert_child_key_diff(diff, u, position);
                 }
             }
 
@@ -269,13 +267,27 @@ fn get_map_of_keys(set: HashSet<String>) -> KeyNode {
     }
 }
 
+fn insert_child_key_diff(parent: KeyNode, child: KeyNode, line: usize) -> KeyNode {
+    if child == KeyNode::Nil {
+        return parent;
+    }
+    if let KeyNode::Array(mut array) = parent {
+        array.push((line, child));
+        KeyNode::Array(array)
+    } else if let KeyNode::Nil = parent {
+        KeyNode::Array(vec![(line, child)])
+    } else {
+        parent // TODO Trying to insert child node in a Value variant : Should not happen => Throw an error instead.
+    }
+}
+
 fn insert_child_key_map(parent: KeyNode, child: KeyNode, key: &String) -> KeyNode {
     if child == KeyNode::Nil {
         return parent;
     }
     if let KeyNode::Node(mut map) = parent {
         map.insert(String::from(key), child);
-        KeyNode::Node(map) // This is weird! I just wanted to return back `parent` here
+        KeyNode::Node(map)
     } else if let KeyNode::Nil = parent {
         let mut map = HashMap::new();
         map.insert(String::from(key), child);
@@ -424,9 +436,9 @@ mod tests {
         let data2 = r#"["b","c",{"c": ["e", "d"] }]"#;
         let diff = compare_jsons(data1, data2, true, &[]).unwrap();
         assert!(!diff.is_empty());
-        let insertions = diff.right_only_keys.absolute_keys_to_vec(None);
+        let insertions = diff.right_only_keys.get_diffs();
         assert_eq!(insertions.len(), 1);
-        assert_eq!(insertions.first().unwrap().to_string(), r#"[l: 2]-"c""#);
+        assert_eq!(insertions.first().unwrap().to_string(), r#".[2].("c")"#);
     }
 
     #[test]
@@ -435,12 +447,12 @@ mod tests {
         let data2 = r#"["b",{"c": ["e","d"] },"a"]"#;
         let diff = compare_jsons(data1, data2, true, &[]).unwrap();
         assert!(!diff.is_empty());
-        let deletions = diff.left_only_keys.absolute_keys_to_vec(None);
+        let deletions = diff.left_only_keys.get_diffs();
 
         assert_eq!(deletions.len(), 1);
         assert_eq!(
             deletions.first().unwrap().to_string(),
-            r#"[l: 0]->c->[l: 2]-"f""#
+            r#".[0].c.[2].("f")"#
         );
     }
 
@@ -450,12 +462,12 @@ mod tests {
         let data2 = r#"["b",{"c": ["e","d"] },"a"]"#;
         let diff = compare_jsons(data1, data2, true, &[]).unwrap();
         assert!(!diff.is_empty());
-        let diffs = diff.keys_in_both.absolute_keys_to_vec(None);
+        let diffs = diff.keys_in_both.get_diffs();
 
         assert_eq!(diffs.len(), 1);
         assert_eq!(
             diffs.first().unwrap().to_string(),
-            r#"[l: 0]->c->[l: 1]->{"f"!="e"}"#
+            r#".[0].c.[1].("f" != "e")"#
         );
     }
 
@@ -466,9 +478,9 @@ mod tests {
         let diff = compare_jsons(data1, data2, false, &[]).unwrap();
         assert_eq!(diff.left_only_keys, KeyNode::Nil);
         assert_eq!(diff.right_only_keys, KeyNode::Nil);
-        let diff = diff.keys_in_both.absolute_keys_to_vec(None);
+        let diff = diff.keys_in_both.get_diffs();
         assert_eq!(diff.len(), 1);
-        assert_eq!(diff.first().unwrap().to_string(), r#"[l: 2]->{"c"!="d"}"#);
+        assert_eq!(diff.first().unwrap().to_string(), r#".[2].("c" != "d")"#);
     }
 
     #[test]
@@ -477,17 +489,17 @@ mod tests {
         let data2 = r#"["a","a","b","d"]"#;
         let diff = compare_jsons(data1, data2, false, &[]).unwrap();
 
-        let changes_diff = diff.keys_in_both.absolute_keys_to_vec(None);
+        let changes_diff = diff.keys_in_both.get_diffs();
         assert_eq!(diff.left_only_keys, KeyNode::Nil);
 
         assert_eq!(changes_diff.len(), 1);
         assert_eq!(
             changes_diff.first().unwrap().to_string(),
-            r#"[l: 2]->{"c"!="d"}"#
+            r#".[2].("c" != "d")"#
         );
-        let insertions = diff.right_only_keys.absolute_keys_to_vec(None);
+        let insertions = diff.right_only_keys.get_diffs();
         assert_eq!(insertions.len(), 1);
-        assert_eq!(insertions.first().unwrap().to_string(), r#"[l: 0]-"a""#);
+        assert_eq!(insertions.first().unwrap().to_string(), r#".[0].("a")"#);
     }
 
     #[test]
@@ -496,9 +508,9 @@ mod tests {
         let data2 = r#"["a","b"]"#;
         let diff = compare_jsons(data1, data2, false, &[]).unwrap();
 
-        let diffs = diff.left_only_keys.absolute_keys_to_vec(None);
+        let diffs = diff.left_only_keys.get_diffs();
         assert_eq!(diffs.len(), 1);
-        assert_eq!(diffs.first().unwrap().to_string(), r#"[l: 2]-"c""#);
+        assert_eq!(diffs.first().unwrap().to_string(), r#".[2].("c")"#);
         assert_eq!(diff.keys_in_both, KeyNode::Nil);
         assert_eq!(diff.right_only_keys, KeyNode::Nil);
     }
@@ -509,9 +521,9 @@ mod tests {
         let data2 = r#"["a","b","c"]"#;
         let diff = compare_jsons(data1, data2, false, &[]).unwrap();
 
-        let diffs = diff.right_only_keys.absolute_keys_to_vec(None);
+        let diffs = diff.right_only_keys.get_diffs();
         assert_eq!(diffs.len(), 1);
-        assert_eq!(diffs.first().unwrap().to_string(), r#"[l: 2]-"c""#);
+        assert_eq!(diffs.first().unwrap().to_string(), r#".[2].("c")"#);
         assert_eq!(diff.keys_in_both, KeyNode::Nil);
         assert_eq!(diff.left_only_keys, KeyNode::Nil);
     }
@@ -521,13 +533,16 @@ mod tests {
         let data1 = r#"["a","b","a"]"#;
         let data2 = r#"["a","c","c","c","a"]"#;
         let diff = compare_jsons(data1, data2, false, &[]).unwrap();
-        let diffs = diff.keys_in_both.absolute_keys_to_vec(None);
+        let diffs = diff.keys_in_both.get_diffs();
 
         assert_eq!(diffs.len(), 3);
         let diffs: Vec<_> = diffs.into_iter().map(|d| d.to_string()).collect();
-        assert!(diffs.contains(&r#"[l: 3]->{null!="c"}"#.to_string()));
-        assert!(diffs.contains(&r#"[l: 1]->{"b"!="c"}"#.to_string()));
-        assert!(diffs.contains(&r#"[l: 2]->{"a"!="c"}"#.to_string()));
+        for diff in &diffs {
+            eprintln!("{diff}");
+        }
+        assert!(diffs.contains(&r#".[3].(null != "c")"#.to_string()));
+        assert!(diffs.contains(&r#".[1].("b" != "c")"#.to_string()));
+        assert!(diffs.contains(&r#".[2].("a" != "c")"#.to_string()));
         assert_eq!(diff.right_only_keys, KeyNode::Nil);
         assert_eq!(diff.left_only_keys, KeyNode::Nil);
     }
@@ -538,11 +553,11 @@ mod tests {
         let data2 = r#"["a","b", {"c": {"d": "e"} }]"#;
         let diff = compare_jsons(data1, data2, false, &[]).unwrap();
 
-        let diffs = diff.right_only_keys.absolute_keys_to_vec(None);
+        let diffs = diff.right_only_keys.get_diffs();
         assert_eq!(diffs.len(), 1);
         assert_eq!(
             diffs.first().unwrap().to_string(),
-            r#"[l: 2]-{"c":{"d":"e"}}"#
+            r#".[2].({"c":{"d":"e"}})"#
         );
         assert_eq!(diff.keys_in_both, KeyNode::Nil);
         assert_eq!(diff.left_only_keys, KeyNode::Nil);

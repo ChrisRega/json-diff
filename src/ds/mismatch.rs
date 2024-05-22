@@ -1,5 +1,5 @@
 use crate::ds::key_node::KeyNode;
-use crate::enums::{DiffType, ValueType};
+use crate::enums::{DiffEntry, DiffType};
 
 #[derive(Debug, PartialEq)]
 pub struct Mismatch {
@@ -31,24 +31,20 @@ impl Mismatch {
             && self.right_only_keys == KeyNode::Nil
     }
 
-    pub fn all_diffs(&self) -> Vec<(DiffType, ValueType)> {
-        self.all_diffs_trunc(None)
-    }
-
-    pub fn all_diffs_trunc(&self, truncation_length: Option<usize>) -> Vec<(DiffType, ValueType)> {
+    pub fn all_diffs(&self) -> Vec<(DiffType, DiffEntry)> {
         let both = self
             .keys_in_both
-            .absolute_keys_to_vec(truncation_length)
+            .get_diffs()
             .into_iter()
             .map(|k| (DiffType::Mismatch, k));
         let left = self
             .left_only_keys
-            .absolute_keys_to_vec(truncation_length)
+            .get_diffs()
             .into_iter()
             .map(|k| (DiffType::LeftExtra, k));
         let right = self
             .right_only_keys
-            .absolute_keys_to_vec(truncation_length)
+            .get_diffs()
             .into_iter()
             .map(|k| (DiffType::RightExtra, k));
 
@@ -59,6 +55,7 @@ impl Mismatch {
 #[cfg(test)]
 mod test {
     use super::*;
+
     #[test]
     fn empty_diffs() {
         let empty = Mismatch::empty();

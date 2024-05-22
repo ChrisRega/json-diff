@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+
 use thiserror::Error;
 use vg_errortools::FatIOError;
 
@@ -30,45 +31,42 @@ impl Display for DiffType {
     }
 }
 
-pub enum ValueType {
-    Key(String),
-    Value {
-        key: String,
-        value_left: String,
-        value_right: String,
-    },
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PathElement {
+    Object(String),
+    ArrayEntry(usize),
 }
 
-impl ValueType {
-    pub fn new_value(key: String, value_left: String, value_right: String) -> Self {
-        Self::Value {
-            value_right,
-            value_left,
-            key,
-        }
-    }
-    pub fn new_key(key: String) -> Self {
-        Self::Key(key)
-    }
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiffEntry {
+    pub path: Vec<PathElement>,
+    pub values: Option<(String, String)>,
+}
 
-    pub fn get_key(&self) -> &str {
-        match self {
-            ValueType::Value { key, .. } => key.as_str(),
-            ValueType::Key(key) => key.as_str(),
+impl Display for DiffEntry {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for element in &self.path {
+            write!(f, ".{element}")?;
         }
+        if let Some((l, r)) = &self.values {
+            if l != r {
+                write!(f, ".({l} != {r})")?;
+            } else {
+                write!(f, ".({l})")?;
+            }
+        }
+        Ok(())
     }
 }
 
-impl Display for ValueType {
+impl Display for PathElement {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ValueType::Key(key) => write!(f, "{key}"),
-            ValueType::Value {
-                value_left,
-                key,
-                value_right,
-            } => {
-                write!(f, "{key}{{{value_left}!={value_right}}}")
+            PathElement::Object(o) => {
+                write!(f, "{o}")
+            }
+            PathElement::ArrayEntry(l) => {
+                write!(f, "[{l}]")
             }
         }
     }
