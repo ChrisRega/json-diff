@@ -1,6 +1,8 @@
 use crate::ds::key_node::KeyNode;
 use crate::enums::{DiffEntry, DiffType};
 
+/// Structure holding the differences after a compare operation.
+/// For more readable access use the [`Mismatch::all_diffs`] method that yields a [`DiffEntry`] per diff.
 #[derive(Debug, PartialEq)]
 pub struct Mismatch {
     pub left_only_keys: KeyNode,

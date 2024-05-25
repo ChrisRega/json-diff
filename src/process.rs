@@ -11,6 +11,8 @@ use crate::ds::key_node::KeyNode;
 use crate::ds::mismatch::Mismatch;
 use crate::enums::Error;
 
+/// Compares two string slices containing serialized json with each other, returns an error or a [`Mismatch`] structure holding all differences.
+/// Internally this calls into [`compare_values`] after deserializing the string slices into [`serde_json::Value`]
 pub fn compare_jsons(
     a: &str,
     b: &str,
@@ -19,8 +21,19 @@ pub fn compare_jsons(
 ) -> Result<Mismatch, Error> {
     let value1 = serde_json::from_str(a)?;
     let value2 = serde_json::from_str(b)?;
-    match_json(&value1, &value2, sort_arrays, ignore_keys)
+    compare_values(&value1, &value2, sort_arrays, ignore_keys)
 }
+
+/// Compares two [`serde_json::Value`] items with each other, returns an error or a [`Mismatch`] structure holding all differences.
+pub fn compare_values(
+    a: &Value,
+    b: &Value,
+    sort_arrays: bool,
+    ignore_keys: &[Regex],
+) -> Result<Mismatch, Error> {
+    match_json(a, b, sort_arrays, ignore_keys)
+}
+
 fn values_to_node(vec: Vec<(usize, &Value)>) -> KeyNode {
     if vec.is_empty() {
         KeyNode::Nil
@@ -67,7 +80,7 @@ impl<'a> Diff for ListDiffHandler<'a> {
     }
 }
 
-pub fn match_json(
+fn match_json(
     value1: &Value,
     value2: &Value,
     sort_arrays: bool,
