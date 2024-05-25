@@ -1,0 +1,64 @@
+{
+    // Verwendet IntelliSense zum Ermitteln möglicher Attribute.
+    // Zeigen Sie auf vorhandene Attribute, um die zugehörigen Beschreibungen anzuzeigen.
+    // Weitere Informationen finden Sie unter https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'json_diff'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=json_diff_ng"
+                ],
+                "filter": {
+                    "name": "json_diff",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'json_diff'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=json_diff",
+                    "--package=json_diff_ng"
+                ],
+                "filter": {
+                    "name": "json_diff",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'json_diff'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=json_diff",
+                    "--package=json_diff_ng"
+                ],
+                "filter": {
+                    "name": "json_diff",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

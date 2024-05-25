@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use diffs::{Diff, myers, Replace};
+use diffs::{myers, Diff, Replace};
 use regex::Regex;
 use serde_json::Map;
 use serde_json::Value;
@@ -19,7 +19,7 @@ pub fn compare_jsons(
 ) -> Result<Mismatch, Error> {
     let value1 = serde_json::from_str(a)?;
     let value2 = serde_json::from_str(b)?;
-    Ok(match_json(&value1, &value2, sort_arrays, ignore_keys))
+    match_json(&value1, &value2, sort_arrays, ignore_keys)
 }
 fn values_to_node(vec: Vec<(usize, &Value)>) -> KeyNode {
     if vec.is_empty() {
@@ -72,107 +72,120 @@ pub fn match_json(
     value2: &Value,
     sort_arrays: bool,
     ignore_keys: &[Regex],
-) -> Mismatch {
+) -> Result<Mismatch, Error> {
     match (value1, value2) {
-        (Value::Object(a), Value::Object(b)) => {
-            let diff = intersect_maps(a, b, ignore_keys);
-            let mut left_only_keys = get_map_of_keys(diff.left_only);
-            let mut right_only_keys = get_map_of_keys(diff.right_only);
-            let intersection_keys = diff.intersection;
+        (Value::Object(a), Value::Object(b)) => process_objects(a, b, ignore_keys, sort_arrays),
+        (Value::Array(a), Value::Array(b)) => process_arrays(sort_arrays, a, ignore_keys, b),
+        (a, b) => process_values(a, b),
+    }
+}
 
-            let mut unequal_keys = KeyNode::Nil;
+fn process_values(a: &Value, b: &Value) -> Result<Mismatch, Error> {
+    if a == b {
+        Ok(Mismatch::new(KeyNode::Nil, KeyNode::Nil, KeyNode::Nil))
+    } else {
+        Ok(Mismatch::new(
+            KeyNode::Nil,
+            KeyNode::Nil,
+            KeyNode::Value(a.clone(), b.clone()),
+        ))
+    }
+}
 
-            for key in intersection_keys {
-                let Mismatch {
-                    left_only_keys: l,
-                    right_only_keys: r,
-                    keys_in_both: u,
-                } = match_json(
-                    a.get(&key).unwrap(),
-                    b.get(&key).unwrap(),
-                    sort_arrays,
-                    ignore_keys,
-                );
-                left_only_keys = insert_child_key_map(left_only_keys, l, &key);
-                right_only_keys = insert_child_key_map(right_only_keys, r, &key);
-                unequal_keys = insert_child_key_map(unequal_keys, u, &key);
-            }
+fn process_objects(
+    a: &Map<String, Value>,
+    b: &Map<String, Value>,
+    ignore_keys: &[Regex],
+    sort_arrays: bool,
+) -> Result<Mismatch, Error> {
+    let diff = intersect_maps(a, b, ignore_keys);
+    let mut left_only_keys = get_map_of_keys(diff.left_only);
+    let mut right_only_keys = get_map_of_keys(diff.right_only);
+    let intersection_keys = diff.intersection;
 
-            Mismatch::new(left_only_keys, right_only_keys, unequal_keys)
-        }
-        (Value::Array(a), Value::Array(b)) => {
-            let a = preprocess_array(sort_arrays, a, ignore_keys);
-            let b = preprocess_array(sort_arrays, b, ignore_keys);
+    let mut unequal_keys = KeyNode::Nil;
 
-            let mut replaced = Vec::new();
-            let mut deleted = Vec::new();
-            let mut inserted = Vec::new();
+    for key in intersection_keys {
+        let Mismatch {
+            left_only_keys: l,
+            right_only_keys: r,
+            keys_in_both: u,
+        } = match_json(
+            a.get(&key).unwrap(),
+            b.get(&key).unwrap(),
+            sort_arrays,
+            ignore_keys,
+        )?;
+        left_only_keys = insert_child_key_map(left_only_keys, l, &key)?;
+        right_only_keys = insert_child_key_map(right_only_keys, r, &key)?;
+        unequal_keys = insert_child_key_map(unequal_keys, u, &key)?;
+    }
 
-            let mut diff = Replace::new(ListDiffHandler::new(
-                &mut replaced,
-                &mut deleted,
-                &mut inserted,
-            ));
-            myers::diff(
-                &mut diff,
-                a.as_slice(),
-                0,
-                a.len(),
-                b.as_slice(),
-                0,
-                b.len(),
-            )
-            .unwrap();
+    Ok(Mismatch::new(left_only_keys, right_only_keys, unequal_keys))
+}
 
-            fn extract_one_sided_values(
-                v: Vec<(usize, usize)>,
-                vals: &[Value],
-            ) -> Vec<(usize, &Value)> {
-                v.into_iter()
-                    .flat_map(|(o, ol)| (o..o + ol).map(|i| (i, &vals[i])))
-                    .collect::<Vec<(usize, &Value)>>()
-            }
+fn process_arrays(
+    sort_arrays: bool,
+    a: &Vec<Value>,
+    ignore_keys: &[Regex],
+    b: &Vec<Value>,
+) -> Result<Mismatch, Error> {
+    let a = preprocess_array(sort_arrays, a, ignore_keys);
+    let b = preprocess_array(sort_arrays, b, ignore_keys);
 
-            let left_only_values: Vec<_> = extract_one_sided_values(deleted, a.as_slice());
-            let right_only_values: Vec<_> = extract_one_sided_values(inserted, b.as_slice());
+    let mut replaced = Vec::new();
+    let mut deleted = Vec::new();
+    let mut inserted = Vec::new();
 
-            let mut left_only_nodes = values_to_node(left_only_values);
-            let mut right_only_nodes = values_to_node(right_only_values);
-            let mut diff = KeyNode::Nil;
+    let mut diff = Replace::new(ListDiffHandler::new(
+        &mut replaced,
+        &mut deleted,
+        &mut inserted,
+    ));
+    myers::diff(
+        &mut diff,
+        a.as_slice(),
+        0,
+        a.len(),
+        b.as_slice(),
+        0,
+        b.len(),
+    )
+    .unwrap();
 
-            for (o, ol, n, nl) in replaced {
-                let max_length = ol.max(nl);
-                for i in 0..max_length {
-                    let inner_a = a.get(o + i).unwrap_or(&Value::Null);
-                    let inner_b = b.get(n + i).unwrap_or(&Value::Null);
+    fn extract_one_sided_values(v: Vec<(usize, usize)>, vals: &[Value]) -> Vec<(usize, &Value)> {
+        v.into_iter()
+            .flat_map(|(o, ol)| (o..o + ol).map(|i| (i, &vals[i])))
+            .collect::<Vec<(usize, &Value)>>()
+    }
 
-                    let cdiff = match_json(inner_a, inner_b, sort_arrays, ignore_keys);
-                    let position = o + i;
-                    let Mismatch {
-                        left_only_keys: l,
-                        right_only_keys: r,
-                        keys_in_both: u,
-                    } = cdiff;
-                    left_only_nodes = insert_child_key_diff(left_only_nodes, l, position);
-                    right_only_nodes = insert_child_key_diff(right_only_nodes, r, position);
-                    diff = insert_child_key_diff(diff, u, position);
-                }
-            }
+    let left_only_values: Vec<_> = extract_one_sided_values(deleted, a.as_slice());
+    let right_only_values: Vec<_> = extract_one_sided_values(inserted, b.as_slice());
 
-            Mismatch::new(left_only_nodes, right_only_nodes, diff)
-        }
-        (a, b) => {
-            if a == b {
-                Mismatch::new(KeyNode::Nil, KeyNode::Nil, KeyNode::Nil)
-            } else {
-                Mismatch::new(
-                    KeyNode::Nil,
-                    KeyNode::Nil,
-                    KeyNode::Value(a.clone(), b.clone()),
-                )
-            }
+    let mut left_only_nodes = values_to_node(left_only_values);
+    let mut right_only_nodes = values_to_node(right_only_values);
+    let mut diff = KeyNode::Nil;
+
+    for (o, ol, n, nl) in replaced {
+        let max_length = ol.max(nl);
+        for i in 0..max_length {
+            let inner_a = a.get(o + i).unwrap_or(&Value::Null);
+            let inner_b = b.get(n + i).unwrap_or(&Value::Null);
+
+            let cdiff = match_json(inner_a, inner_b, sort_arrays, ignore_keys)?;
+            let position = o + i;
+            let Mismatch {
+                left_only_keys: l,
+                right_only_keys: r,
+                keys_in_both: u,
+            } = cdiff;
+            left_only_nodes = insert_child_key_diff(left_only_nodes, l, position)?;
+            right_only_nodes = insert_child_key_diff(right_only_nodes, r, position)?;
+            diff = insert_child_key_diff(diff, u, position)?;
         }
     }
+
+    Ok(Mismatch::new(left_only_nodes, right_only_nodes, diff))
 }
 
 fn preprocess_array<'a>(
@@ -267,33 +280,33 @@ fn get_map_of_keys(set: HashSet<String>) -> KeyNode {
     }
 }
 
-fn insert_child_key_diff(parent: KeyNode, child: KeyNode, line: usize) -> KeyNode {
+fn insert_child_key_diff(parent: KeyNode, child: KeyNode, line: usize) -> Result<KeyNode, Error> {
     if child == KeyNode::Nil {
-        return parent;
+        return Ok(parent);
     }
     if let KeyNode::Array(mut array) = parent {
         array.push((line, child));
-        KeyNode::Array(array)
+        Ok(KeyNode::Array(array))
     } else if let KeyNode::Nil = parent {
-        KeyNode::Array(vec![(line, child)])
+        Ok(KeyNode::Array(vec![(line, child)]))
     } else {
-        parent // TODO Trying to insert child node in a Value variant : Should not happen => Throw an error instead.
+        Err(format!("Tried to insert child: {child:?} into parent {parent:?} - structure incoherent, expected a parent array - somehow json structure seems broken").into())
     }
 }
 
-fn insert_child_key_map(parent: KeyNode, child: KeyNode, key: &String) -> KeyNode {
+fn insert_child_key_map(parent: KeyNode, child: KeyNode, key: &String) -> Result<KeyNode, Error> {
     if child == KeyNode::Nil {
-        return parent;
+        return Ok(parent);
     }
     if let KeyNode::Node(mut map) = parent {
         map.insert(String::from(key), child);
-        KeyNode::Node(map)
+        Ok(KeyNode::Node(map))
     } else if let KeyNode::Nil = parent {
         let mut map = HashMap::new();
         map.insert(String::from(key), child);
-        KeyNode::Node(map)
+        Ok(KeyNode::Node(map))
     } else {
-        parent // TODO Trying to insert child node in a Value variant : Should not happen => Throw an error instead.
+        Err(format!("Tried to insert child: {child:?} into parent {parent:?} - structure incoherent, expected a parent object - somehow json structure seems broken").into())
     }
 }
 
