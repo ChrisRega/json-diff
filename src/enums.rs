@@ -5,10 +5,18 @@ use vg_errortools::FatIOError;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("Misc error: {0}")]
+    Misc(String),
     #[error("Error opening file: {0}")]
     IOError(#[from] FatIOError),
     #[error("Error parsing first json: {0}")]
     JSON(#[from] serde_json::Error),
+}
+
+impl From<String> for Error {
+    fn from(value: String) -> Self {
+        Self::Misc(value)
+    }
 }
 
 #[derive(Debug)]
