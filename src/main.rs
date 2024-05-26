@@ -1,8 +1,7 @@
 use clap::Parser;
 use clap::Subcommand;
 
-use json_diff::{ds::mismatch::Mismatch, process::compare_jsons};
-use json_diff::enums::Error;
+use json_diff_ng::{compare_strs, Mismatch, Result};
 
 #[derive(Subcommand, Clone)]
 /// Input selection
@@ -29,7 +28,7 @@ struct Args {
     truncation_length: usize,
 }
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<()> {
     let args = Args::parse();
     let (json_1, json_2) = match args.cmd {
         Mode::Direct { json_2, json_1 } => (json_1, json_2),
@@ -40,7 +39,7 @@ fn main() -> Result<(), Error> {
         }
     };
 
-    let mismatch = compare_jsons(&json_1, &json_2, args.sort_arrays, &[])?;
+    let mismatch = compare_strs(&json_1, &json_2, args.sort_arrays, &[])?;
 
     let comparison_result = check_diffs(mismatch)?;
     if !comparison_result {
@@ -49,7 +48,7 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
-pub fn check_diffs(result: Mismatch) -> Result<bool, Error> {
+pub fn check_diffs(result: Mismatch) -> Result<bool> {
     let mismatches = result.all_diffs();
     let is_good = mismatches.is_empty();
     for (d_type, key) in mismatches {

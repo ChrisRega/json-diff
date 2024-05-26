@@ -1,5 +1,38 @@
-# json-diff
+# json-diff-ng
 
+[![Crates.io](https://img.shields.io/crates/d/json_diff_ng?style=flat)](https://crates.io/crates/json_diff_ng)
+[![Documentation](https://docs.rs/json_diff_ng/badge.svg)](https://docs.rs/json_diff_ng)
+![CI](https://github.com/ChrisRega/json-diff/actions/workflows/rust.yml/badge.svg?branch=master "CI")
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat)](LICENSE)
+
+## Contributors:
+
+<a href="https://github.com/ChrisRega/json-diff/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=ChrisRega/json-diff"  alt="Contributors"/>
+</a>
+
+## Library
+json_diff_ng can be used to get diffs of json-serializable structures in rust.
+
+### Usage example
+```rust
+use json_diff::compare_strs;
+let data1 = r#"["a",{"c": ["d","f"] },"b"]"#;
+let data2 = r#"["b",{"c": ["e","d"] },"a"]"#;
+let diffs = compare_strs(data1, data2, true, &[]).unwrap();
+assert!(!diffs.is_empty());
+let diffs = diffs.unequal_values.get_diffs();
+assert_eq!(diffs.len(), 1);
+assert_eq!(
+  diffs.first().unwrap().to_string(),
+  r#".[0].c.[1].("f" != "e")"#
+);
+```
+
+See [docs.rs](https://docs.rs/json_diff_ng) for more details.
+
+
+## CLI
 json-diff is a command line utility to compare two jsons.  
 
 Input can be fed as inline strings or through files.  
@@ -17,9 +50,5 @@ file   :   read input from json files
 direct   :   read input from command line
 
 ### Installation
+`$ cargo install json_diff_ng`
 
-Currently, json-diff is available through crates.io (apart from building this repo directly). For crate installation,  
-* Install cargo, through rustup  
-`$ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`  
-* Install json-diff  
-`$ cargo install json_diff`

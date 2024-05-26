@@ -1,49 +1,51 @@
-use crate::ds::key_node::KeyNode;
 use crate::enums::{DiffEntry, DiffType};
+use crate::DiffTreeNode;
 
+/// Structure holding the differences after a compare operation.
+/// For more readable access use the [`Mismatch::all_diffs`] method that yields a [`DiffEntry`] per diff.
 #[derive(Debug, PartialEq)]
 pub struct Mismatch {
-    pub left_only_keys: KeyNode,
-    pub right_only_keys: KeyNode,
-    pub keys_in_both: KeyNode,
+    pub left_only: DiffTreeNode,
+    pub right_only: DiffTreeNode,
+    pub unequal_values: DiffTreeNode,
 }
 
 impl Mismatch {
-    pub fn new(l: KeyNode, r: KeyNode, u: KeyNode) -> Mismatch {
+    pub fn new(l: DiffTreeNode, r: DiffTreeNode, u: DiffTreeNode) -> Mismatch {
         Mismatch {
-            left_only_keys: l,
-            right_only_keys: r,
-            keys_in_both: u,
+            left_only: l,
+            right_only: r,
+            unequal_values: u,
         }
     }
 
     pub fn empty() -> Self {
         Mismatch {
-            left_only_keys: KeyNode::Nil,
-            keys_in_both: KeyNode::Nil,
-            right_only_keys: KeyNode::Nil,
+            left_only: DiffTreeNode::Null,
+            unequal_values: DiffTreeNode::Null,
+            right_only: DiffTreeNode::Null,
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.left_only_keys == KeyNode::Nil
-            && self.keys_in_both == KeyNode::Nil
-            && self.right_only_keys == KeyNode::Nil
+        self.left_only == DiffTreeNode::Null
+            && self.unequal_values == DiffTreeNode::Null
+            && self.right_only == DiffTreeNode::Null
     }
 
     pub fn all_diffs(&self) -> Vec<(DiffType, DiffEntry)> {
         let both = self
-            .keys_in_both
+            .unequal_values
             .get_diffs()
             .into_iter()
             .map(|k| (DiffType::Mismatch, k));
         let left = self
-            .left_only_keys
+            .left_only
             .get_diffs()
             .into_iter()
             .map(|k| (DiffType::LeftExtra, k));
         let right = self
-            .right_only_keys
+            .right_only
             .get_diffs()
             .into_iter()
             .map(|k| (DiffType::RightExtra, k));

@@ -1,10 +1,10 @@
 [package]
 name = "json_diff_ng"
-version = "0.6.0-RC1"
+version = "0.6.0-RC3"
 authors = ["ksceriath", "ChrisRega"]
 edition = "2021"
 license = "Unlicense"
-description = "A small diff tool utility for comparing jsons. Forked from ksceriath and improved for usage as a library and with proper support for array diffs."
+description = "A JSON diff library and CLI."
 readme = "README.md"
 homepage = "https://github.com/ChrisRega/json-diff"
 repository = "https://github.com/ChrisRega/json-diff"
@@ -12,12 +12,12 @@ keywords = ["cli", "diff", "json"]
 categories = ["command-line-utilities"]
 
 [lib]
-name = "json_diff"
+name = "json_diff_ng"
 path = "src/lib.rs"
 crate-type = ["lib"]
 
 [[bin]]
-name = "json_diff"
+name = "json_diff_ng"
 path = "src/main.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

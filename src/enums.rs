@@ -19,6 +19,65 @@ impl From<String> for Error {
     }
 }
 
+use std::collections::HashMap;
+
+use serde_json::Value;
+
+#[derive(Debug, PartialEq)]
+pub enum DiffTreeNode {
+    Null,
+    Value(Value, Value),
+    Node(HashMap<String, DiffTreeNode>),
+    Array(Vec<(usize, DiffTreeNode)>),
+}
+
+impl<'a> DiffTreeNode {
+    pub fn get_diffs(&'a self) -> Vec<DiffEntry<'a>> {
+        let mut buf = Vec::new();
+        self.follow_path(&mut buf, &[]);
+        buf
+    }
+
+    pub fn follow_path<'b>(
+        &'a self,
+        diffs: &mut Vec<DiffEntry<'a>>,
+        offset: &'b [PathElement<'a>],
+    ) {
+        match self {
+            DiffTreeNode::Null => {
+                let is_map_child = offset
+                    .last()
+                    .map(|o| matches!(o, PathElement::Object(_)))
+                    .unwrap_or_default();
+                if is_map_child {
+                    diffs.push(DiffEntry {
+                        path: offset.to_vec(),
+                        values: None,
+                    });
+                }
+            }
+            DiffTreeNode::Value(l, r) => diffs.push(DiffEntry {
+                path: offset.to_vec(),
+                values: Some((l, r)),
+            }),
+            DiffTreeNode::Node(o) => {
+                for (k, v) in o {
+                    let mut new_offset = offset.to_vec();
+                    new_offset.push(PathElement::Object(k));
+                    v.follow_path(diffs, &new_offset);
+                }
+            }
+            DiffTreeNode::Array(v) => {
+                for (l, k) in v {
+                    let mut new_offset = offset.to_vec();
+                    new_offset.push(PathElement::ArrayEntry(*l));
+                    k.follow_path(diffs, &new_offset);
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum DiffType {
     RootMismatch,
@@ -40,18 +99,38 @@ impl Display for DiffType {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PathElement {
-    Object(String),
+pub enum PathElement<'a> {
+    Object(&'a str),
     ArrayEntry(usize),
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct DiffEntry {
-    pub path: Vec<PathElement>,
-    pub values: Option<(String, String)>,
+impl<'a> PathElement<'a> {
+    pub fn resolve<'b>(&self, v: &'b serde_json::Value) -> Option<&'b serde_json::Value> {
+        match self {
+            PathElement::Object(o) => v.get(o),
+            PathElement::ArrayEntry(i) => v.get(*i),
+        }
+    }
+
+    pub fn resolve_mut<'b>(
+        &self,
+        v: &'b mut serde_json::Value,
+    ) -> Option<&'b mut serde_json::Value> {
+        match self {
+            PathElement::Object(o) => v.get_mut(o),
+            PathElement::ArrayEntry(i) => v.get_mut(*i),
+        }
+    }
 }
 
-impl Display for DiffEntry {
+/// A view on a single end-node of the [`DiffKeyNode`] tree.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiffEntry<'a> {
+    pub path: Vec<PathElement<'a>>,
+    pub values: Option<(&'a serde_json::Value, &'a serde_json::Value)>,
+}
+
+impl Display for DiffEntry<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for element in &self.path {
             write!(f, ".{element}")?;
@@ -67,7 +146,7 @@ impl Display for DiffEntry {
     }
 }
 
-impl Display for PathElement {
+impl Display for PathElement<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             PathElement::Object(o) => {
