@@ -3,7 +3,7 @@
 //! Main entry points are [`compare_strs`] to compare string slices and [`compare_serde_values`] to compare already parse [`serde_json::Value`]
 //! ## Example:
 //! ```rust
-//! use json_diff::compare_strs;
+//! use json_diff_ng::compare_strs;
 //! let data1 = r#"["a",{"c": ["d","f"] },"b"]"#;
 //! let data2 = r#"["b",{"c": ["e","d"] },"a"]"#;
 //! let diffs = compare_strs(data1, data2, true, &[]).unwrap();
