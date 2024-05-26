@@ -6,10 +6,10 @@ use regex::Regex;
 use serde_json::Map;
 use serde_json::Value;
 
-use crate::enums::Error;
 use crate::sort::preprocess_array;
 use crate::DiffTreeNode;
 use crate::Mismatch;
+use crate::Result;
 
 /// Compares two string slices containing serialized json with each other, returns an error or a [`Mismatch`] structure holding all differences.
 /// Internally this calls into [`compare_values`] after deserializing the string slices into [`serde_json::Value`].
@@ -20,7 +20,7 @@ pub fn compare_strs(
     b: &str,
     sort_arrays: bool,
     ignore_keys: &[Regex],
-) -> Result<Mismatch, Error> {
+) -> Result<Mismatch> {
     let value1 = serde_json::from_str(a)?;
     let value2 = serde_json::from_str(b)?;
     compare_serde_values(&value1, &value2, sort_arrays, ignore_keys)
@@ -34,7 +34,7 @@ pub fn compare_serde_values(
     b: &Value,
     sort_arrays: bool,
     ignore_keys: &[Regex],
-) -> Result<Mismatch, Error> {
+) -> Result<Mismatch> {
     match_json(a, b, sort_arrays, ignore_keys)
 }
 
@@ -70,15 +70,21 @@ impl<'a> ListDiffHandler<'a> {
 }
 impl<'a> Diff for ListDiffHandler<'a> {
     type Error = ();
-    fn delete(&mut self, old: usize, len: usize, _new: usize) -> Result<(), ()> {
+    fn delete(&mut self, old: usize, len: usize, _new: usize) -> std::result::Result<(), ()> {
         self.deletion.push((old, len));
         Ok(())
     }
-    fn insert(&mut self, _o: usize, new: usize, len: usize) -> Result<(), ()> {
+    fn insert(&mut self, _o: usize, new: usize, len: usize) -> std::result::Result<(), ()> {
         self.insertion.push((new, len));
         Ok(())
     }
-    fn replace(&mut self, old: usize, len: usize, new: usize, new_len: usize) -> Result<(), ()> {
+    fn replace(
+        &mut self,
+        old: usize,
+        len: usize,
+        new: usize,
+        new_len: usize,
+    ) -> std::result::Result<(), ()> {
         self.replaced.push((old, len, new, new_len));
         Ok(())
     }
@@ -89,7 +95,7 @@ fn match_json(
     value2: &Value,
     sort_arrays: bool,
     ignore_keys: &[Regex],
-) -> Result<Mismatch, Error> {
+) -> Result<Mismatch> {
     match (value1, value2) {
         (Value::Object(a), Value::Object(b)) => process_objects(a, b, ignore_keys, sort_arrays),
         (Value::Array(a), Value::Array(b)) => process_arrays(sort_arrays, a, ignore_keys, b),
@@ -97,7 +103,7 @@ fn match_json(
     }
 }
 
-fn process_values(a: &Value, b: &Value) -> Result<Mismatch, Error> {
+fn process_values(a: &Value, b: &Value) -> Result<Mismatch> {
     if a == b {
         Ok(Mismatch::new(
             DiffTreeNode::Null,
@@ -118,7 +124,7 @@ fn process_objects(
     b: &Map<String, Value>,
     ignore_keys: &[Regex],
     sort_arrays: bool,
-) -> Result<Mismatch, Error> {
+) -> Result<Mismatch> {
     let diff = intersect_maps(a, b, ignore_keys);
     let mut left_only_keys = get_map_of_keys(diff.left_only);
     let mut right_only_keys = get_map_of_keys(diff.right_only);
@@ -150,7 +156,7 @@ fn process_arrays(
     a: &Vec<Value>,
     ignore_keys: &[Regex],
     b: &Vec<Value>,
-) -> Result<Mismatch, Error> {
+) -> Result<Mismatch> {
     let a = preprocess_array(sort_arrays, a, ignore_keys);
     let b = preprocess_array(sort_arrays, b, ignore_keys);
 
@@ -225,7 +231,7 @@ fn insert_child_key_diff(
     parent: DiffTreeNode,
     child: DiffTreeNode,
     line: usize,
-) -> Result<DiffTreeNode, Error> {
+) -> Result<DiffTreeNode> {
     if child == DiffTreeNode::Null {
         return Ok(parent);
     }
@@ -243,7 +249,7 @@ fn insert_child_key_map(
     parent: DiffTreeNode,
     child: DiffTreeNode,
     key: &String,
-) -> Result<DiffTreeNode, Error> {
+) -> Result<DiffTreeNode> {
     if child == DiffTreeNode::Null {
         return Ok(parent);
     }
@@ -644,7 +650,7 @@ mod tests {
 
         assert_eq!(
             compare_strs(data1, data2, false, &[]).unwrap(),
-            Mismatch::new(DiffTreeNode::Null, DiffTreeNode::Null, DiffTreeNode::Null)
+            Mismatch::empty()
         );
     }
 
@@ -652,23 +658,15 @@ mod tests {
     fn parse_err_source_one() {
         let invalid_json1 = r#"{invalid: json}"#;
         let valid_json2 = r#"{"a":"b"}"#;
-        match compare_strs(invalid_json1, valid_json2, false, &[]) {
-            Ok(_) => panic!("This shouldn't be an Ok"),
-            Err(err) => {
-                matches!(err, Error::JSON(_));
-            }
-        };
+        compare_strs(invalid_json1, valid_json2, false, &[])
+            .expect_err("Parsing invalid JSON didn't throw an error");
     }
 
     #[test]
     fn parse_err_source_two() {
         let valid_json1 = r#"{"a":"b"}"#;
         let invalid_json2 = r#"{invalid: json}"#;
-        match compare_strs(valid_json1, invalid_json2, false, &[]) {
-            Ok(_) => panic!("This shouldn't be an Ok"),
-            Err(err) => {
-                matches!(err, Error::JSON(_));
-            }
-        };
+        compare_strs(valid_json1, invalid_json2, false, &[])
+            .expect_err("Parsing invalid JSON didn't throw an err");
     }
 }
