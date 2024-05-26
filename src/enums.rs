@@ -45,6 +45,26 @@ pub enum PathElement {
     ArrayEntry(usize),
 }
 
+impl PathElement {
+    pub fn resolve<'a>(&self, v: &'a serde_json::Value) -> Option<&'a serde_json::Value> {
+        match self {
+            PathElement::Object(o) => v.get(o),
+            PathElement::ArrayEntry(i) => v.get(*i),
+        }
+    }
+
+    pub fn resolve_mut<'a>(
+        &self,
+        v: &'a mut serde_json::Value,
+    ) -> Option<&'a mut serde_json::Value> {
+        match self {
+            PathElement::Object(o) => v.get_mut(o),
+            PathElement::ArrayEntry(i) => v.get_mut(*i),
+        }
+    }
+}
+
+/// Represents a single difference in a JSON file
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DiffEntry {
     pub path: Vec<PathElement>,

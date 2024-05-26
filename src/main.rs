@@ -1,8 +1,8 @@
 use clap::Parser;
 use clap::Subcommand;
 
-use json_diff::{ds::mismatch::Mismatch, process::compare_jsons};
 use json_diff::enums::Error;
+use json_diff::{ds::mismatch::Mismatch, process::compare_strs};
 
 #[derive(Subcommand, Clone)]
 /// Input selection
@@ -40,7 +40,7 @@ fn main() -> Result<(), Error> {
         }
     };
 
-    let mismatch = compare_jsons(&json_1, &json_2, args.sort_arrays, &[])?;
+    let mismatch = compare_strs(&json_1, &json_2, args.sort_arrays, &[])?;
 
     let comparison_result = check_diffs(mismatch)?;
     if !comparison_result {

@@ -5,14 +5,14 @@ use serde_json::Value;
 use crate::enums::{DiffEntry, PathElement};
 
 #[derive(Debug, PartialEq)]
-pub enum KeyNode {
-    Nil,
+pub enum TreeNode {
+    Null,
     Value(Value, Value),
-    Node(HashMap<String, KeyNode>),
-    Array(Vec<(usize, KeyNode)>),
+    Node(HashMap<String, TreeNode>),
+    Array(Vec<(usize, TreeNode)>),
 }
 
-impl KeyNode {
+impl TreeNode {
     pub fn get_diffs(&self) -> Vec<DiffEntry> {
         let mut buf = Vec::new();
         self.follow_path(&mut buf, &[]);
@@ -21,7 +21,7 @@ impl KeyNode {
 
     pub fn follow_path(&self, diffs: &mut Vec<DiffEntry>, offset: &[PathElement]) {
         match self {
-            KeyNode::Nil => {
+            TreeNode::Null => {
                 let is_map_child = offset
                     .last()
                     .map(|o| matches!(o, PathElement::Object(_)))
@@ -33,18 +33,18 @@ impl KeyNode {
                     });
                 }
             }
-            KeyNode::Value(l, r) => diffs.push(DiffEntry {
+            TreeNode::Value(l, r) => diffs.push(DiffEntry {
                 path: offset.to_vec(),
                 values: Some((l.to_string(), r.to_string())),
             }),
-            KeyNode::Node(o) => {
+            TreeNode::Node(o) => {
                 for (k, v) in o {
                     let mut new_offset = offset.to_vec();
                     new_offset.push(PathElement::Object(k.clone()));
                     v.follow_path(diffs, &new_offset);
                 }
             }
-            KeyNode::Array(v) => {
+            TreeNode::Array(v) => {
                 for (l, k) in v {
                     let mut new_offset = offset.to_vec();
                     new_offset.push(PathElement::ArrayEntry(*l));

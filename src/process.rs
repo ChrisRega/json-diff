@@ -7,13 +7,15 @@ use regex::Regex;
 use serde_json::Map;
 use serde_json::Value;
 
-use crate::ds::key_node::KeyNode;
+use crate::ds::key_node::TreeNode;
 use crate::ds::mismatch::Mismatch;
 use crate::enums::Error;
 
 /// Compares two string slices containing serialized json with each other, returns an error or a [`Mismatch`] structure holding all differences.
-/// Internally this calls into [`compare_values`] after deserializing the string slices into [`serde_json::Value`]
-pub fn compare_jsons(
+/// Internally this calls into [`compare_values`] after deserializing the string slices into [`serde_json::Value`].
+/// Arguments are the string slices, a bool to trigger deep sorting of arrays and ignored_keys as a list of regex to match keys against.
+/// Ignoring a regex from comparison will also ignore the key from having an impact on sorting arrays.
+pub fn compare_strs(
     a: &str,
     b: &str,
     sort_arrays: bool,
@@ -21,11 +23,13 @@ pub fn compare_jsons(
 ) -> Result<Mismatch, Error> {
     let value1 = serde_json::from_str(a)?;
     let value2 = serde_json::from_str(b)?;
-    compare_values(&value1, &value2, sort_arrays, ignore_keys)
+    compare_serde_values(&value1, &value2, sort_arrays, ignore_keys)
 }
 
 /// Compares two [`serde_json::Value`] items with each other, returns an error or a [`Mismatch`] structure holding all differences.
-pub fn compare_values(
+/// Arguments are the values, a bool to trigger deep sorting of arrays and ignored_keys as a list of regex to match keys against.
+/// Ignoring a regex from comparison will also ignore the key from having an impact on sorting arrays.
+pub fn compare_serde_values(
     a: &Value,
     b: &Value,
     sort_arrays: bool,
@@ -34,13 +38,13 @@ pub fn compare_values(
     match_json(a, b, sort_arrays, ignore_keys)
 }
 
-fn values_to_node(vec: Vec<(usize, &Value)>) -> KeyNode {
+fn values_to_node(vec: Vec<(usize, &Value)>) -> TreeNode {
     if vec.is_empty() {
-        KeyNode::Nil
+        TreeNode::Null
     } else {
-        KeyNode::Array(
+        TreeNode::Array(
             vec.into_iter()
-                .map(|(l, v)| (l, KeyNode::Value(v.clone(), v.clone())))
+                .map(|(l, v)| (l, TreeNode::Value(v.clone(), v.clone())))
                 .collect(),
         )
     }
@@ -95,12 +99,16 @@ fn match_json(
 
 fn process_values(a: &Value, b: &Value) -> Result<Mismatch, Error> {
     if a == b {
-        Ok(Mismatch::new(KeyNode::Nil, KeyNode::Nil, KeyNode::Nil))
+        Ok(Mismatch::new(
+            TreeNode::Null,
+            TreeNode::Null,
+            TreeNode::Null,
+        ))
     } else {
         Ok(Mismatch::new(
-            KeyNode::Nil,
-            KeyNode::Nil,
-            KeyNode::Value(a.clone(), b.clone()),
+            TreeNode::Null,
+            TreeNode::Null,
+            TreeNode::Value(a.clone(), b.clone()),
         ))
     }
 }
@@ -116,13 +124,13 @@ fn process_objects(
     let mut right_only_keys = get_map_of_keys(diff.right_only);
     let intersection_keys = diff.intersection;
 
-    let mut unequal_keys = KeyNode::Nil;
+    let mut unequal_keys = TreeNode::Null;
 
     for key in intersection_keys {
         let Mismatch {
-            left_only_keys: l,
-            right_only_keys: r,
-            keys_in_both: u,
+            left_only: l,
+            right_only: r,
+            unequal_values: u,
         } = match_json(
             a.get(&key).unwrap(),
             b.get(&key).unwrap(),
@@ -177,7 +185,7 @@ fn process_arrays(
 
     let mut left_only_nodes = values_to_node(left_only_values);
     let mut right_only_nodes = values_to_node(right_only_values);
-    let mut diff = KeyNode::Nil;
+    let mut diff = TreeNode::Null;
 
     for (o, ol, n, nl) in replaced {
         let max_length = ol.max(nl);
@@ -188,9 +196,9 @@ fn process_arrays(
             let cdiff = match_json(inner_a, inner_b, sort_arrays, ignore_keys)?;
             let position = o + i;
             let Mismatch {
-                left_only_keys: l,
-                right_only_keys: r,
-                keys_in_both: u,
+                left_only: l,
+                right_only: r,
+                unequal_values: u,
             } = cdiff;
             left_only_nodes = insert_child_key_diff(left_only_nodes, l, position)?;
             right_only_nodes = insert_child_key_diff(right_only_nodes, r, position)?;
@@ -281,43 +289,51 @@ fn compare_values(a: &Value, b: &Value, ignore_keys: &[Regex]) -> std::cmp::Orde
     }
 }
 
-fn get_map_of_keys(set: HashSet<String>) -> KeyNode {
+fn get_map_of_keys(set: HashSet<String>) -> TreeNode {
     if !set.is_empty() {
-        KeyNode::Node(
+        TreeNode::Node(
             set.iter()
-                .map(|key| (String::from(key), KeyNode::Nil))
+                .map(|key| (String::from(key), TreeNode::Null))
                 .collect(),
         )
     } else {
-        KeyNode::Nil
+        TreeNode::Null
     }
 }
 
-fn insert_child_key_diff(parent: KeyNode, child: KeyNode, line: usize) -> Result<KeyNode, Error> {
-    if child == KeyNode::Nil {
+fn insert_child_key_diff(
+    parent: TreeNode,
+    child: TreeNode,
+    line: usize,
+) -> Result<TreeNode, Error> {
+    if child == TreeNode::Null {
         return Ok(parent);
     }
-    if let KeyNode::Array(mut array) = parent {
+    if let TreeNode::Array(mut array) = parent {
         array.push((line, child));
-        Ok(KeyNode::Array(array))
-    } else if let KeyNode::Nil = parent {
-        Ok(KeyNode::Array(vec![(line, child)]))
+        Ok(TreeNode::Array(array))
+    } else if let TreeNode::Null = parent {
+        Ok(TreeNode::Array(vec![(line, child)]))
     } else {
         Err(format!("Tried to insert child: {child:?} into parent {parent:?} - structure incoherent, expected a parent array - somehow json structure seems broken").into())
     }
 }
 
-fn insert_child_key_map(parent: KeyNode, child: KeyNode, key: &String) -> Result<KeyNode, Error> {
-    if child == KeyNode::Nil {
+fn insert_child_key_map(
+    parent: TreeNode,
+    child: TreeNode,
+    key: &String,
+) -> Result<TreeNode, Error> {
+    if child == TreeNode::Null {
         return Ok(parent);
     }
-    if let KeyNode::Node(mut map) = parent {
+    if let TreeNode::Node(mut map) = parent {
         map.insert(String::from(key), child);
-        Ok(KeyNode::Node(map))
-    } else if let KeyNode::Nil = parent {
+        Ok(TreeNode::Node(map))
+    } else if let TreeNode::Null = parent {
         let mut map = HashMap::new();
         map.insert(String::from(key), child);
-        Ok(KeyNode::Node(map))
+        Ok(TreeNode::Node(map))
     } else {
         Err(format!("Tried to insert child: {child:?} into parent {parent:?} - structure incoherent, expected a parent object - somehow json structure seems broken").into())
     }
@@ -420,7 +436,7 @@ mod tests {
         let data1 = r#"[{"c": {"d": "e"} },"b","c"]"#;
         let data2 = r#"["b","c",{"c": {"d": "f"} }]"#;
         let ignore = Regex::new("d").unwrap();
-        let diff = compare_jsons(data1, data2, true, &[ignore]).unwrap();
+        let diff = compare_strs(data1, data2, true, &[ignore]).unwrap();
         assert!(diff.is_empty());
     }
 
@@ -428,7 +444,7 @@ mod tests {
     fn test_arrays_sorted_simple() {
         let data1 = r#"["a","b","c"]"#;
         let data2 = r#"["b","c","a"]"#;
-        let diff = compare_jsons(data1, data2, true, &[]).unwrap();
+        let diff = compare_strs(data1, data2, true, &[]).unwrap();
         assert!(diff.is_empty());
     }
 
@@ -436,7 +452,7 @@ mod tests {
     fn test_arrays_sorted_objects() {
         let data1 = r#"[{"c": {"d": "e"} },"b","c"]"#;
         let data2 = r#"["b","c",{"c": {"d": "e"} }]"#;
-        let diff = compare_jsons(data1, data2, true, &[]).unwrap();
+        let diff = compare_strs(data1, data2, true, &[]).unwrap();
         assert!(diff.is_empty());
     }
 
@@ -444,7 +460,7 @@ mod tests {
     fn test_arrays_deep_sorted_objects() {
         let data1 = r#"[{"c": ["d","e"] },"b","c"]"#;
         let data2 = r#"["b","c",{"c": ["e", "d"] }]"#;
-        let diff = compare_jsons(data1, data2, true, &[]).unwrap();
+        let diff = compare_strs(data1, data2, true, &[]).unwrap();
         assert!(diff.is_empty());
     }
 
@@ -452,7 +468,7 @@ mod tests {
     fn test_arrays_deep_sorted_objects_with_arrays() {
         let data1 = r#"[{"a": [{"b": ["3", "1"]}] }, {"a": [{"b": ["2", "3"]}] }]"#;
         let data2 = r#"[{"a": [{"b": ["2", "3"]}] }, {"a": [{"b": ["1", "3"]}] }]"#;
-        let diff = compare_jsons(data1, data2, true, &[]).unwrap();
+        let diff = compare_strs(data1, data2, true, &[]).unwrap();
         assert!(diff.is_empty());
     }
 
@@ -460,9 +476,9 @@ mod tests {
     fn test_arrays_deep_sorted_objects_with_outer_diff() {
         let data1 = r#"[{"c": ["d","e"] },"b"]"#;
         let data2 = r#"["b","c",{"c": ["e", "d"] }]"#;
-        let diff = compare_jsons(data1, data2, true, &[]).unwrap();
+        let diff = compare_strs(data1, data2, true, &[]).unwrap();
         assert!(!diff.is_empty());
-        let insertions = diff.right_only_keys.get_diffs();
+        let insertions = diff.right_only.get_diffs();
         assert_eq!(insertions.len(), 1);
         assert_eq!(insertions.first().unwrap().to_string(), r#".[2].("c")"#);
     }
@@ -471,9 +487,9 @@ mod tests {
     fn test_arrays_deep_sorted_objects_with_inner_diff() {
         let data1 = r#"["a",{"c": ["d","e", "f"] },"b"]"#;
         let data2 = r#"["b",{"c": ["e","d"] },"a"]"#;
-        let diff = compare_jsons(data1, data2, true, &[]).unwrap();
+        let diff = compare_strs(data1, data2, true, &[]).unwrap();
         assert!(!diff.is_empty());
-        let deletions = diff.left_only_keys.get_diffs();
+        let deletions = diff.left_only.get_diffs();
 
         assert_eq!(deletions.len(), 1);
         assert_eq!(
@@ -486,9 +502,9 @@ mod tests {
     fn test_arrays_deep_sorted_objects_with_inner_diff_mutation() {
         let data1 = r#"["a",{"c": ["d", "f"] },"b"]"#;
         let data2 = r#"["b",{"c": ["e","d"] },"a"]"#;
-        let diff = compare_jsons(data1, data2, true, &[]).unwrap();
-        assert!(!diff.is_empty());
-        let diffs = diff.keys_in_both.get_diffs();
+        let diffs = compare_strs(data1, data2, true, &[]).unwrap();
+        assert!(!diffs.is_empty());
+        let diffs = diffs.unequal_values.get_diffs();
 
         assert_eq!(diffs.len(), 1);
         assert_eq!(
@@ -501,10 +517,10 @@ mod tests {
     fn test_arrays_simple_diff() {
         let data1 = r#"["a","b","c"]"#;
         let data2 = r#"["a","b","d"]"#;
-        let diff = compare_jsons(data1, data2, false, &[]).unwrap();
-        assert_eq!(diff.left_only_keys, KeyNode::Nil);
-        assert_eq!(diff.right_only_keys, KeyNode::Nil);
-        let diff = diff.keys_in_both.get_diffs();
+        let diff = compare_strs(data1, data2, false, &[]).unwrap();
+        assert_eq!(diff.left_only, TreeNode::Null);
+        assert_eq!(diff.right_only, TreeNode::Null);
+        let diff = diff.unequal_values.get_diffs();
         assert_eq!(diff.len(), 1);
         assert_eq!(diff.first().unwrap().to_string(), r#".[2].("c" != "d")"#);
     }
@@ -513,17 +529,17 @@ mod tests {
     fn test_arrays_more_complex_diff() {
         let data1 = r#"["a","b","c"]"#;
         let data2 = r#"["a","a","b","d"]"#;
-        let diff = compare_jsons(data1, data2, false, &[]).unwrap();
+        let diff = compare_strs(data1, data2, false, &[]).unwrap();
 
-        let changes_diff = diff.keys_in_both.get_diffs();
-        assert_eq!(diff.left_only_keys, KeyNode::Nil);
+        let changes_diff = diff.unequal_values.get_diffs();
+        assert_eq!(diff.left_only, TreeNode::Null);
 
         assert_eq!(changes_diff.len(), 1);
         assert_eq!(
             changes_diff.first().unwrap().to_string(),
             r#".[2].("c" != "d")"#
         );
-        let insertions = diff.right_only_keys.get_diffs();
+        let insertions = diff.right_only.get_diffs();
         assert_eq!(insertions.len(), 1);
         assert_eq!(insertions.first().unwrap().to_string(), r#".[0].("a")"#);
     }
@@ -532,34 +548,34 @@ mod tests {
     fn test_arrays_extra_left() {
         let data1 = r#"["a","b","c"]"#;
         let data2 = r#"["a","b"]"#;
-        let diff = compare_jsons(data1, data2, false, &[]).unwrap();
+        let diff = compare_strs(data1, data2, false, &[]).unwrap();
 
-        let diffs = diff.left_only_keys.get_diffs();
+        let diffs = diff.left_only.get_diffs();
         assert_eq!(diffs.len(), 1);
         assert_eq!(diffs.first().unwrap().to_string(), r#".[2].("c")"#);
-        assert_eq!(diff.keys_in_both, KeyNode::Nil);
-        assert_eq!(diff.right_only_keys, KeyNode::Nil);
+        assert_eq!(diff.unequal_values, TreeNode::Null);
+        assert_eq!(diff.right_only, TreeNode::Null);
     }
 
     #[test]
     fn test_arrays_extra_right() {
         let data1 = r#"["a","b"]"#;
         let data2 = r#"["a","b","c"]"#;
-        let diff = compare_jsons(data1, data2, false, &[]).unwrap();
+        let diff = compare_strs(data1, data2, false, &[]).unwrap();
 
-        let diffs = diff.right_only_keys.get_diffs();
+        let diffs = diff.right_only.get_diffs();
         assert_eq!(diffs.len(), 1);
         assert_eq!(diffs.first().unwrap().to_string(), r#".[2].("c")"#);
-        assert_eq!(diff.keys_in_both, KeyNode::Nil);
-        assert_eq!(diff.left_only_keys, KeyNode::Nil);
+        assert_eq!(diff.unequal_values, TreeNode::Null);
+        assert_eq!(diff.left_only, TreeNode::Null);
     }
 
     #[test]
     fn long_insertion_modification() {
         let data1 = r#"["a","b","a"]"#;
         let data2 = r#"["a","c","c","c","a"]"#;
-        let diff = compare_jsons(data1, data2, false, &[]).unwrap();
-        let diffs = diff.keys_in_both.get_diffs();
+        let diff = compare_strs(data1, data2, false, &[]).unwrap();
+        let diffs = diff.unequal_values.get_diffs();
 
         assert_eq!(diffs.len(), 3);
         let diffs: Vec<_> = diffs.into_iter().map(|d| d.to_string()).collect();
@@ -569,24 +585,24 @@ mod tests {
         assert!(diffs.contains(&r#".[3].(null != "c")"#.to_string()));
         assert!(diffs.contains(&r#".[1].("b" != "c")"#.to_string()));
         assert!(diffs.contains(&r#".[2].("a" != "c")"#.to_string()));
-        assert_eq!(diff.right_only_keys, KeyNode::Nil);
-        assert_eq!(diff.left_only_keys, KeyNode::Nil);
+        assert_eq!(diff.right_only, TreeNode::Null);
+        assert_eq!(diff.left_only, TreeNode::Null);
     }
 
     #[test]
     fn test_arrays_object_extra() {
         let data1 = r#"["a","b"]"#;
         let data2 = r#"["a","b", {"c": {"d": "e"} }]"#;
-        let diff = compare_jsons(data1, data2, false, &[]).unwrap();
+        let diff = compare_strs(data1, data2, false, &[]).unwrap();
 
-        let diffs = diff.right_only_keys.get_diffs();
+        let diffs = diff.right_only.get_diffs();
         assert_eq!(diffs.len(), 1);
         assert_eq!(
             diffs.first().unwrap().to_string(),
             r#".[2].({"c":{"d":"e"}})"#
         );
-        assert_eq!(diff.keys_in_both, KeyNode::Nil);
-        assert_eq!(diff.left_only_keys, KeyNode::Nil);
+        assert_eq!(diff.unequal_values, TreeNode::Null);
+        assert_eq!(diff.left_only, TreeNode::Null);
     }
 
     #[test]
@@ -620,24 +636,24 @@ mod tests {
             }
         }"#;
 
-        let expected_left = KeyNode::Node(hashmap! {
-        "b".to_string() => KeyNode::Node(hashmap! {
-                "c".to_string() => KeyNode::Node(hashmap! {
-                        "f".to_string() => KeyNode::Nil,
-                        "h".to_string() => KeyNode::Node( hashmap! {
-                                "j".to_string() => KeyNode::Nil,
+        let expected_left = TreeNode::Node(hashmap! {
+        "b".to_string() => TreeNode::Node(hashmap! {
+                "c".to_string() => TreeNode::Node(hashmap! {
+                        "f".to_string() => TreeNode::Null,
+                        "h".to_string() => TreeNode::Node( hashmap! {
+                                "j".to_string() => TreeNode::Null,
                             }
                         ),
                 }
                 ),
             }),
         });
-        let expected_right = KeyNode::Node(hashmap! {
-            "b".to_string() => KeyNode::Node(hashmap! {
-                    "c".to_string() => KeyNode::Node(hashmap! {
-                            "g".to_string() => KeyNode::Nil,
-                            "h".to_string() => KeyNode::Node(hashmap! {
-                                    "k".to_string() => KeyNode::Nil,
+        let expected_right = TreeNode::Node(hashmap! {
+            "b".to_string() => TreeNode::Node(hashmap! {
+                    "c".to_string() => TreeNode::Node(hashmap! {
+                            "g".to_string() => TreeNode::Null,
+                            "h".to_string() => TreeNode::Node(hashmap! {
+                                    "k".to_string() => TreeNode::Null,
                                 }
                             )
                         }
@@ -645,12 +661,12 @@ mod tests {
                 }
             )
         });
-        let expected_uneq = KeyNode::Node(hashmap! {
-            "b".to_string() => KeyNode::Node(hashmap! {
-                    "c".to_string() => KeyNode::Node(hashmap! {
-                            "e".to_string() => KeyNode::Value(json!(5), json!(6)),
-                            "h".to_string() => KeyNode::Node(hashmap! {
-                                    "i".to_string() => KeyNode::Value(json!(true), json!(false)),
+        let expected_uneq = TreeNode::Node(hashmap! {
+            "b".to_string() => TreeNode::Node(hashmap! {
+                    "c".to_string() => TreeNode::Node(hashmap! {
+                            "e".to_string() => TreeNode::Value(json!(5), json!(6)),
+                            "h".to_string() => TreeNode::Node(hashmap! {
+                                    "i".to_string() => TreeNode::Value(json!(true), json!(false)),
                                 }
                             )
                         }
@@ -660,7 +676,7 @@ mod tests {
         });
         let expected = Mismatch::new(expected_left, expected_right, expected_uneq);
 
-        let mismatch = compare_jsons(data1, data2, false, &[]).unwrap();
+        let mismatch = compare_strs(data1, data2, false, &[]).unwrap();
         assert_eq!(mismatch, expected, "Diff was incorrect.");
     }
 
@@ -696,8 +712,8 @@ mod tests {
         }"#;
 
         assert_eq!(
-            compare_jsons(data1, data2, false, &[]).unwrap(),
-            Mismatch::new(KeyNode::Nil, KeyNode::Nil, KeyNode::Nil)
+            compare_strs(data1, data2, false, &[]).unwrap(),
+            Mismatch::new(TreeNode::Null, TreeNode::Null, TreeNode::Null)
         );
     }
 
@@ -707,8 +723,8 @@ mod tests {
         let data2 = r#"{}"#;
 
         assert_eq!(
-            compare_jsons(data1, data2, false, &[]).unwrap(),
-            Mismatch::new(KeyNode::Nil, KeyNode::Nil, KeyNode::Nil)
+            compare_strs(data1, data2, false, &[]).unwrap(),
+            Mismatch::new(TreeNode::Null, TreeNode::Null, TreeNode::Null)
         );
     }
 
@@ -716,7 +732,7 @@ mod tests {
     fn parse_err_source_one() {
         let invalid_json1 = r#"{invalid: json}"#;
         let valid_json2 = r#"{"a":"b"}"#;
-        match compare_jsons(invalid_json1, valid_json2, false, &[]) {
+        match compare_strs(invalid_json1, valid_json2, false, &[]) {
             Ok(_) => panic!("This shouldn't be an Ok"),
             Err(err) => {
                 matches!(err, Error::JSON(_));
@@ -728,7 +744,7 @@ mod tests {
     fn parse_err_source_two() {
         let valid_json1 = r#"{"a":"b"}"#;
         let invalid_json2 = r#"{invalid: json}"#;
-        match compare_jsons(valid_json1, invalid_json2, false, &[]) {
+        match compare_strs(valid_json1, invalid_json2, false, &[]) {
             Ok(_) => panic!("This shouldn't be an Ok"),
             Err(err) => {
                 matches!(err, Error::JSON(_));
