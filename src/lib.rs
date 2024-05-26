@@ -33,6 +33,7 @@ pub use enums::DiffEntry;
 pub use enums::DiffTreeNode;
 pub use enums::DiffType;
 pub use enums::Error;
+pub use enums::PathElement;
 pub use mismatch::Mismatch;
 pub use process::compare_serde_values;
 pub use process::compare_strs;

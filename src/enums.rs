@@ -123,7 +123,7 @@ impl<'a> PathElement<'a> {
     }
 }
 
-/// A view on a single end-node of the [`DiffKeyNode`] tree.
+/// A view on a single end-node of the [`DiffTreeNode`] tree.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DiffEntry<'a> {
     pub path: Vec<PathElement<'a>>,

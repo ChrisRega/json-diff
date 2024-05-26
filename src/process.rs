@@ -12,7 +12,7 @@ use crate::Mismatch;
 use crate::Result;
 
 /// Compares two string slices containing serialized json with each other, returns an error or a [`Mismatch`] structure holding all differences.
-/// Internally this calls into [`compare_values`] after deserializing the string slices into [`serde_json::Value`].
+/// Internally this calls into [`compare_serde_values`] after deserializing the string slices into [`serde_json::Value`].
 /// Arguments are the string slices, a bool to trigger deep sorting of arrays and ignored_keys as a list of regex to match keys against.
 /// Ignoring a regex from comparison will also ignore the key from having an impact on sorting arrays.
 pub fn compare_strs(
