@@ -1,5 +1,5 @@
-use crate::ds::key_node::DiffTreeNode;
 use crate::enums::{DiffEntry, DiffType};
+use crate::DiffTreeNode;
 
 /// Structure holding the differences after a compare operation.
 /// For more readable access use the [`Mismatch::all_diffs`] method that yields a [`DiffEntry`] per diff.

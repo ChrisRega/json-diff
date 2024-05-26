@@ -25,15 +25,15 @@
 //!
 //!
 
-pub mod ds;
-
 pub mod enums;
+pub mod mismatch;
 pub mod process;
-pub use ds::key_node::DiffTreeNode;
-pub use ds::mismatch::Mismatch;
+pub mod sort;
 pub use enums::DiffEntry;
+pub use enums::DiffTreeNode;
 pub use enums::DiffType;
 pub use enums::Error;
+pub use mismatch::Mismatch;
 pub use process::compare_serde_values;
 pub use process::compare_strs;
 pub type Result<T> = std::result::Result<T, Error>;
