@@ -105,11 +105,7 @@ fn match_json(
 
 fn process_values(a: &Value, b: &Value) -> Result<Mismatch> {
     if a == b {
-        Ok(Mismatch::new(
-            DiffTreeNode::Null,
-            DiffTreeNode::Null,
-            DiffTreeNode::Null,
-        ))
+        Ok(Mismatch::empty())
     } else {
         Ok(Mismatch::new(
             DiffTreeNode::Null,
