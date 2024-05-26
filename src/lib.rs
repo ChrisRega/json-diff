@@ -1,8 +1,7 @@
 //! # Library for comparing JSON data structures
 //! ## Summary
 //! Main entry points are [`compare_strs`] to compare string slices and [`compare_serde_values`] to compare already parse [`serde_json::Value`]
-//! ## Examples:
-//! ### Compare string slices:
+//! ## Example:
 //! ```rust
 //! use json_diff::compare_strs;
 //! let data1 = r#"["a",{"c": ["d","f"] },"b"]"#;
@@ -17,6 +16,12 @@
 //!   r#".[0].c.[1].("f" != "e")"#
 //! );
 //! ```
+//! ## How to handle the results
+//! Results are returned in a triple of [`DiffTreeNode`] called [`Mismatch`].
+//! The triple consists of values only on the left side, values only on the right side and values on both sides that differ.
+//! Since tree traversal is not usually what you want to do on client side, [`DiffTreeNode`] offers [`DiffTreeNode::get_diffs`] to retrieve
+//! a flat list of [`DiffEntry`] which is more easily usable. The path in the json is collapsed into a vector of [`PathElement`] which can be used to follow the diff.
+//! Similarly, all diffs after an operation can be collected using [`Mismatch::all_diffs`].
 //!
 //!
 
@@ -24,7 +29,8 @@ pub mod ds;
 
 pub mod enums;
 pub mod process;
-pub use ds::key_node::TreeNode;
+pub use ds::key_node::DiffTreeNode;
+pub use ds::mismatch::Mismatch;
 pub use enums::DiffEntry;
 pub use enums::DiffType;
 pub use enums::Error;

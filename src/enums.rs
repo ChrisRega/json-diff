@@ -40,23 +40,23 @@ impl Display for DiffType {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PathElement {
-    Object(String),
+pub enum PathElement<'a> {
+    Object(&'a str),
     ArrayEntry(usize),
 }
 
-impl PathElement {
-    pub fn resolve<'a>(&self, v: &'a serde_json::Value) -> Option<&'a serde_json::Value> {
+impl<'a> PathElement<'a> {
+    pub fn resolve<'b>(&self, v: &'b serde_json::Value) -> Option<&'b serde_json::Value> {
         match self {
             PathElement::Object(o) => v.get(o),
             PathElement::ArrayEntry(i) => v.get(*i),
         }
     }
 
-    pub fn resolve_mut<'a>(
+    pub fn resolve_mut<'b>(
         &self,
-        v: &'a mut serde_json::Value,
-    ) -> Option<&'a mut serde_json::Value> {
+        v: &'b mut serde_json::Value,
+    ) -> Option<&'b mut serde_json::Value> {
         match self {
             PathElement::Object(o) => v.get_mut(o),
             PathElement::ArrayEntry(i) => v.get_mut(*i),
@@ -64,14 +64,14 @@ impl PathElement {
     }
 }
 
-/// Represents a single difference in a JSON file
+/// A view on a single end-node of the [`DiffKeyNode`] tree.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct DiffEntry {
-    pub path: Vec<PathElement>,
-    pub values: Option<(String, String)>,
+pub struct DiffEntry<'a> {
+    pub path: Vec<PathElement<'a>>,
+    pub values: Option<(&'a serde_json::Value, &'a serde_json::Value)>,
 }
 
-impl Display for DiffEntry {
+impl Display for DiffEntry<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for element in &self.path {
             write!(f, ".{element}")?;
@@ -87,7 +87,7 @@ impl Display for DiffEntry {
     }
 }
 
-impl Display for PathElement {
+impl Display for PathElement<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             PathElement::Object(o) => {

@@ -7,7 +7,7 @@ use regex::Regex;
 use serde_json::Map;
 use serde_json::Value;
 
-use crate::ds::key_node::TreeNode;
+use crate::ds::key_node::DiffTreeNode;
 use crate::ds::mismatch::Mismatch;
 use crate::enums::Error;
 
@@ -38,13 +38,13 @@ pub fn compare_serde_values(
     match_json(a, b, sort_arrays, ignore_keys)
 }
 
-fn values_to_node(vec: Vec<(usize, &Value)>) -> TreeNode {
+fn values_to_node(vec: Vec<(usize, &Value)>) -> DiffTreeNode {
     if vec.is_empty() {
-        TreeNode::Null
+        DiffTreeNode::Null
     } else {
-        TreeNode::Array(
+        DiffTreeNode::Array(
             vec.into_iter()
-                .map(|(l, v)| (l, TreeNode::Value(v.clone(), v.clone())))
+                .map(|(l, v)| (l, DiffTreeNode::Value(v.clone(), v.clone())))
                 .collect(),
         )
     }
@@ -100,15 +100,15 @@ fn match_json(
 fn process_values(a: &Value, b: &Value) -> Result<Mismatch, Error> {
     if a == b {
         Ok(Mismatch::new(
-            TreeNode::Null,
-            TreeNode::Null,
-            TreeNode::Null,
+            DiffTreeNode::Null,
+            DiffTreeNode::Null,
+            DiffTreeNode::Null,
         ))
     } else {
         Ok(Mismatch::new(
-            TreeNode::Null,
-            TreeNode::Null,
-            TreeNode::Value(a.clone(), b.clone()),
+            DiffTreeNode::Null,
+            DiffTreeNode::Null,
+            DiffTreeNode::Value(a.clone(), b.clone()),
         ))
     }
 }
@@ -124,7 +124,7 @@ fn process_objects(
     let mut right_only_keys = get_map_of_keys(diff.right_only);
     let intersection_keys = diff.intersection;
 
-    let mut unequal_keys = TreeNode::Null;
+    let mut unequal_keys = DiffTreeNode::Null;
 
     for key in intersection_keys {
         let Mismatch {
@@ -185,7 +185,7 @@ fn process_arrays(
 
     let mut left_only_nodes = values_to_node(left_only_values);
     let mut right_only_nodes = values_to_node(right_only_values);
-    let mut diff = TreeNode::Null;
+    let mut diff = DiffTreeNode::Null;
 
     for (o, ol, n, nl) in replaced {
         let max_length = ol.max(nl);
@@ -289,51 +289,51 @@ fn compare_values(a: &Value, b: &Value, ignore_keys: &[Regex]) -> std::cmp::Orde
     }
 }
 
-fn get_map_of_keys(set: HashSet<String>) -> TreeNode {
+fn get_map_of_keys(set: HashSet<String>) -> DiffTreeNode {
     if !set.is_empty() {
-        TreeNode::Node(
+        DiffTreeNode::Node(
             set.iter()
-                .map(|key| (String::from(key), TreeNode::Null))
+                .map(|key| (String::from(key), DiffTreeNode::Null))
                 .collect(),
         )
     } else {
-        TreeNode::Null
+        DiffTreeNode::Null
     }
 }
 
 fn insert_child_key_diff(
-    parent: TreeNode,
-    child: TreeNode,
+    parent: DiffTreeNode,
+    child: DiffTreeNode,
     line: usize,
-) -> Result<TreeNode, Error> {
-    if child == TreeNode::Null {
+) -> Result<DiffTreeNode, Error> {
+    if child == DiffTreeNode::Null {
         return Ok(parent);
     }
-    if let TreeNode::Array(mut array) = parent {
+    if let DiffTreeNode::Array(mut array) = parent {
         array.push((line, child));
-        Ok(TreeNode::Array(array))
-    } else if let TreeNode::Null = parent {
-        Ok(TreeNode::Array(vec![(line, child)]))
+        Ok(DiffTreeNode::Array(array))
+    } else if let DiffTreeNode::Null = parent {
+        Ok(DiffTreeNode::Array(vec![(line, child)]))
     } else {
         Err(format!("Tried to insert child: {child:?} into parent {parent:?} - structure incoherent, expected a parent array - somehow json structure seems broken").into())
     }
 }
 
 fn insert_child_key_map(
-    parent: TreeNode,
-    child: TreeNode,
+    parent: DiffTreeNode,
+    child: DiffTreeNode,
     key: &String,
-) -> Result<TreeNode, Error> {
-    if child == TreeNode::Null {
+) -> Result<DiffTreeNode, Error> {
+    if child == DiffTreeNode::Null {
         return Ok(parent);
     }
-    if let TreeNode::Node(mut map) = parent {
+    if let DiffTreeNode::Node(mut map) = parent {
         map.insert(String::from(key), child);
-        Ok(TreeNode::Node(map))
-    } else if let TreeNode::Null = parent {
+        Ok(DiffTreeNode::Node(map))
+    } else if let DiffTreeNode::Null = parent {
         let mut map = HashMap::new();
         map.insert(String::from(key), child);
-        Ok(TreeNode::Node(map))
+        Ok(DiffTreeNode::Node(map))
     } else {
         Err(format!("Tried to insert child: {child:?} into parent {parent:?} - structure incoherent, expected a parent object - somehow json structure seems broken").into())
     }
@@ -518,8 +518,8 @@ mod tests {
         let data1 = r#"["a","b","c"]"#;
         let data2 = r#"["a","b","d"]"#;
         let diff = compare_strs(data1, data2, false, &[]).unwrap();
-        assert_eq!(diff.left_only, TreeNode::Null);
-        assert_eq!(diff.right_only, TreeNode::Null);
+        assert_eq!(diff.left_only, DiffTreeNode::Null);
+        assert_eq!(diff.right_only, DiffTreeNode::Null);
         let diff = diff.unequal_values.get_diffs();
         assert_eq!(diff.len(), 1);
         assert_eq!(diff.first().unwrap().to_string(), r#".[2].("c" != "d")"#);
@@ -532,7 +532,7 @@ mod tests {
         let diff = compare_strs(data1, data2, false, &[]).unwrap();
 
         let changes_diff = diff.unequal_values.get_diffs();
-        assert_eq!(diff.left_only, TreeNode::Null);
+        assert_eq!(diff.left_only, DiffTreeNode::Null);
 
         assert_eq!(changes_diff.len(), 1);
         assert_eq!(
@@ -553,8 +553,8 @@ mod tests {
         let diffs = diff.left_only.get_diffs();
         assert_eq!(diffs.len(), 1);
         assert_eq!(diffs.first().unwrap().to_string(), r#".[2].("c")"#);
-        assert_eq!(diff.unequal_values, TreeNode::Null);
-        assert_eq!(diff.right_only, TreeNode::Null);
+        assert_eq!(diff.unequal_values, DiffTreeNode::Null);
+        assert_eq!(diff.right_only, DiffTreeNode::Null);
     }
 
     #[test]
@@ -566,8 +566,8 @@ mod tests {
         let diffs = diff.right_only.get_diffs();
         assert_eq!(diffs.len(), 1);
         assert_eq!(diffs.first().unwrap().to_string(), r#".[2].("c")"#);
-        assert_eq!(diff.unequal_values, TreeNode::Null);
-        assert_eq!(diff.left_only, TreeNode::Null);
+        assert_eq!(diff.unequal_values, DiffTreeNode::Null);
+        assert_eq!(diff.left_only, DiffTreeNode::Null);
     }
 
     #[test]
@@ -585,8 +585,8 @@ mod tests {
         assert!(diffs.contains(&r#".[3].(null != "c")"#.to_string()));
         assert!(diffs.contains(&r#".[1].("b" != "c")"#.to_string()));
         assert!(diffs.contains(&r#".[2].("a" != "c")"#.to_string()));
-        assert_eq!(diff.right_only, TreeNode::Null);
-        assert_eq!(diff.left_only, TreeNode::Null);
+        assert_eq!(diff.right_only, DiffTreeNode::Null);
+        assert_eq!(diff.left_only, DiffTreeNode::Null);
     }
 
     #[test]
@@ -601,8 +601,8 @@ mod tests {
             diffs.first().unwrap().to_string(),
             r#".[2].({"c":{"d":"e"}})"#
         );
-        assert_eq!(diff.unequal_values, TreeNode::Null);
-        assert_eq!(diff.left_only, TreeNode::Null);
+        assert_eq!(diff.unequal_values, DiffTreeNode::Null);
+        assert_eq!(diff.left_only, DiffTreeNode::Null);
     }
 
     #[test]
@@ -636,24 +636,24 @@ mod tests {
             }
         }"#;
 
-        let expected_left = TreeNode::Node(hashmap! {
-        "b".to_string() => TreeNode::Node(hashmap! {
-                "c".to_string() => TreeNode::Node(hashmap! {
-                        "f".to_string() => TreeNode::Null,
-                        "h".to_string() => TreeNode::Node( hashmap! {
-                                "j".to_string() => TreeNode::Null,
+        let expected_left = DiffTreeNode::Node(hashmap! {
+        "b".to_string() => DiffTreeNode::Node(hashmap! {
+                "c".to_string() => DiffTreeNode::Node(hashmap! {
+                        "f".to_string() => DiffTreeNode::Null,
+                        "h".to_string() => DiffTreeNode::Node( hashmap! {
+                                "j".to_string() => DiffTreeNode::Null,
                             }
                         ),
                 }
                 ),
             }),
         });
-        let expected_right = TreeNode::Node(hashmap! {
-            "b".to_string() => TreeNode::Node(hashmap! {
-                    "c".to_string() => TreeNode::Node(hashmap! {
-                            "g".to_string() => TreeNode::Null,
-                            "h".to_string() => TreeNode::Node(hashmap! {
-                                    "k".to_string() => TreeNode::Null,
+        let expected_right = DiffTreeNode::Node(hashmap! {
+            "b".to_string() => DiffTreeNode::Node(hashmap! {
+                    "c".to_string() => DiffTreeNode::Node(hashmap! {
+                            "g".to_string() => DiffTreeNode::Null,
+                            "h".to_string() => DiffTreeNode::Node(hashmap! {
+                                    "k".to_string() => DiffTreeNode::Null,
                                 }
                             )
                         }
@@ -661,12 +661,12 @@ mod tests {
                 }
             )
         });
-        let expected_uneq = TreeNode::Node(hashmap! {
-            "b".to_string() => TreeNode::Node(hashmap! {
-                    "c".to_string() => TreeNode::Node(hashmap! {
-                            "e".to_string() => TreeNode::Value(json!(5), json!(6)),
-                            "h".to_string() => TreeNode::Node(hashmap! {
-                                    "i".to_string() => TreeNode::Value(json!(true), json!(false)),
+        let expected_uneq = DiffTreeNode::Node(hashmap! {
+            "b".to_string() => DiffTreeNode::Node(hashmap! {
+                    "c".to_string() => DiffTreeNode::Node(hashmap! {
+                            "e".to_string() => DiffTreeNode::Value(json!(5), json!(6)),
+                            "h".to_string() => DiffTreeNode::Node(hashmap! {
+                                    "i".to_string() => DiffTreeNode::Value(json!(true), json!(false)),
                                 }
                             )
                         }
@@ -713,7 +713,7 @@ mod tests {
 
         assert_eq!(
             compare_strs(data1, data2, false, &[]).unwrap(),
-            Mismatch::new(TreeNode::Null, TreeNode::Null, TreeNode::Null)
+            Mismatch::new(DiffTreeNode::Null, DiffTreeNode::Null, DiffTreeNode::Null)
         );
     }
 
@@ -724,7 +724,7 @@ mod tests {
 
         assert_eq!(
             compare_strs(data1, data2, false, &[]).unwrap(),
-            Mismatch::new(TreeNode::Null, TreeNode::Null, TreeNode::Null)
+            Mismatch::new(DiffTreeNode::Null, DiffTreeNode::Null, DiffTreeNode::Null)
         );
     }
 

@@ -1,17 +1,17 @@
-use crate::ds::key_node::TreeNode;
+use crate::ds::key_node::DiffTreeNode;
 use crate::enums::{DiffEntry, DiffType};
 
 /// Structure holding the differences after a compare operation.
 /// For more readable access use the [`Mismatch::all_diffs`] method that yields a [`DiffEntry`] per diff.
 #[derive(Debug, PartialEq)]
 pub struct Mismatch {
-    pub left_only: TreeNode,
-    pub right_only: TreeNode,
-    pub unequal_values: TreeNode,
+    pub left_only: DiffTreeNode,
+    pub right_only: DiffTreeNode,
+    pub unequal_values: DiffTreeNode,
 }
 
 impl Mismatch {
-    pub fn new(l: TreeNode, r: TreeNode, u: TreeNode) -> Mismatch {
+    pub fn new(l: DiffTreeNode, r: DiffTreeNode, u: DiffTreeNode) -> Mismatch {
         Mismatch {
             left_only: l,
             right_only: r,
@@ -21,16 +21,16 @@ impl Mismatch {
 
     pub fn empty() -> Self {
         Mismatch {
-            left_only: TreeNode::Null,
-            unequal_values: TreeNode::Null,
-            right_only: TreeNode::Null,
+            left_only: DiffTreeNode::Null,
+            unequal_values: DiffTreeNode::Null,
+            right_only: DiffTreeNode::Null,
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.left_only == TreeNode::Null
-            && self.unequal_values == TreeNode::Null
-            && self.right_only == TreeNode::Null
+        self.left_only == DiffTreeNode::Null
+            && self.unequal_values == DiffTreeNode::Null
+            && self.right_only == DiffTreeNode::Null
     }
 
     pub fn all_diffs(&self) -> Vec<(DiffType, DiffEntry)> {
