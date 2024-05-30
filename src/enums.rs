@@ -13,6 +13,8 @@ pub enum Error {
     IOError(#[from] FatIOError),
     #[error("Error parsing first json: {0}")]
     JSON(#[from] serde_json::Error),
+    #[error("Regex compilation error: {0}")]
+    Regex(#[from] regex::Error),
 }
 
 impl From<String> for Error {

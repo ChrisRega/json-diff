@@ -1,15 +1,15 @@
 [package]
 name = "json_diff_ng"
-version = "0.6.0-RC3"
-authors = ["ksceriath", "ChrisRega"]
+version = "0.6.0"
+authors = ["ChrisRega", "ksceriath"]
 edition = "2021"
 license = "Unlicense"
-description = "A JSON diff library and CLI."
+description = "A JSON diff library, featuring deep-sorting and key exclusion by regex. CLI is included."
 readme = "README.md"
 homepage = "https://github.com/ChrisRega/json-diff"
 repository = "https://github.com/ChrisRega/json-diff"
-keywords = ["cli", "diff", "json"]
-categories = ["command-line-utilities"]
+categories = ["command-line-utilities", "development-tools"]
+keywords = ["json-structural-diff", "json-diff", "diff", "json", "cli"]
 
 [lib]
 name = "json_diff_ng"
@@ -19,6 +19,11 @@ crate-type = ["lib"]
 [[bin]]
 name = "json_diff_ng"
 path = "src/main.rs"
+required-features = ["CLI"]
+
+[features]
+default = ["CLI"]
+CLI = ["dep:clap"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -26,7 +31,9 @@ path = "src/main.rs"
 thiserror = "1.0"
 vg_errortools = "0.1"
 serde_json = { version = "1.0", features = ["preserve_order"] }
-maplit = "1.0"
-clap = { version = "4.5", features = ["derive"] }
 diffs = "0.5"
 regex = "1.10"
+clap = { version = "4.5", features = ["derive"], optional = true }
+
+[dev-dependencies]
+maplit = "1.0"
