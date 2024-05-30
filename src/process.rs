@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use diffs::{myers, Diff, Replace};
+use diffs::{Diff, myers, Replace};
 use regex::Regex;
 use serde_json::Map;
 use serde_json::Value;
 
-use crate::sort::preprocess_array;
 use crate::DiffTreeNode;
 use crate::Mismatch;
 use crate::Result;
+use crate::sort::preprocess_array;
 
 /// Compares two string slices containing serialized json with each other, returns an error or a [`Mismatch`] structure holding all differences.
 /// Internally this calls into [`compare_serde_values`] after deserializing the string slices into [`serde_json::Value`].
@@ -194,7 +194,6 @@ fn process_arrays(
         for i in 0..max_length {
             let inner_a = a.get(o + i).unwrap_or(&Value::Null);
             let inner_b = b.get(n + i).unwrap_or(&Value::Null);
-
             let cdiff = match_json(inner_a, inner_b, sort_arrays, ignore_keys)?;
             let position = o + i;
             let Mismatch {
@@ -501,9 +500,7 @@ mod tests {
 
         assert_eq!(diffs.len(), 3);
         let diffs: Vec<_> = diffs.into_iter().map(|d| d.to_string()).collect();
-        for diff in &diffs {
-            eprintln!("{diff}");
-        }
+
         assert!(diffs.contains(&r#".[3].(null != "c")"#.to_string()));
         assert!(diffs.contains(&r#".[1].("b" != "c")"#.to_string()));
         assert!(diffs.contains(&r#".[2].("a" != "c")"#.to_string()));
