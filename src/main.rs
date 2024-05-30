@@ -23,13 +23,14 @@ struct Args {
     /// deep-sort arrays before comparing
     sort_arrays: bool,
 
-    #[clap(short, long, default_value_t = 20)]
-    /// truncate keys with more chars then this parameter
-    truncation_length: usize,
+    #[clap(short, long)]
+    /// Exclude a given list of keys by regex.
+    exclude_keys: Option<Vec<String>>,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    println!("Getting input");
     let (json_1, json_2) = match args.cmd {
         Mode::Direct { json_2, json_1 } => (json_1, json_2),
         Mode::File { file_2, file_1 } => {
@@ -38,9 +39,20 @@ fn main() -> Result<()> {
             (d1, d2)
         }
     };
-
-    let mismatch = compare_strs(&json_1, &json_2, args.sort_arrays, &[])?;
-
+    println!("Evaluation exclusion regex list");
+    let exclusion_keys = args
+        .exclude_keys
+        .as_ref()
+        .map(|v| {
+            v.iter()
+                .map(|k| regex::Regex::new(k).map_err(|e| e.into()))
+                .collect::<Result<Vec<regex::Regex>>>()
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+    println!("Comparing");
+    let mismatch = compare_strs(&json_1, &json_2, args.sort_arrays, &exclusion_keys)?;
+    println!("Printing results");
     let comparison_result = check_diffs(mismatch)?;
     if !comparison_result {
         std::process::exit(1);
