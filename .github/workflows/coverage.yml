@@ -33,8 +33,8 @@ jobs:
           RUSTFLAGS: "-Cinstrument-coverage -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
           CARGO_INCREMENTAL: 0
         run: |
-          cargo +nightly build --verbose
-          cargo +nightly test --verbose
+          cargo +nightly build --verbose --no-default-features
+          cargo +nightly test --verbose --no-default-features
           grcov . -s . --binary-path ./target/debug/ -t lcov --llvm --branch --ignore-not-existing --ignore="/*" --ignore="target/*" --ignore="tests/*"  -o lcov.info
 
       - name: Push grcov results to Coveralls via GitHub Action
