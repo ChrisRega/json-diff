@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
+use serde_json::Value;
 use thiserror::Error;
 use vg_errortools::FatIOError;
 
@@ -18,10 +20,6 @@ impl From<String> for Error {
         Self::Misc(value)
     }
 }
-
-use std::collections::HashMap;
-
-use serde_json::Value;
 
 #[derive(Debug, PartialEq)]
 pub enum DiffTreeNode {
@@ -123,11 +121,21 @@ impl<'a> PathElement<'a> {
     }
 }
 
-/// A view on a single end-node of the [`DiffKeyNode`] tree.
+/// A view on a single end-node of the [`DiffTreeNode`] tree.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DiffEntry<'a> {
     pub path: Vec<PathElement<'a>>,
     pub values: Option<(&'a serde_json::Value, &'a serde_json::Value)>,
+}
+
+impl<'a> DiffEntry<'a> {
+    pub fn resolve<'b>(&'a self, value: &'b serde_json::Value) -> Option<&'b serde_json::Value> {
+        let mut return_value = value;
+        for a in &self.path {
+            return_value = a.resolve(return_value)?;
+        }
+        Some(return_value)
+    }
 }
 
 impl Display for DiffEntry<'_> {
@@ -156,5 +164,31 @@ impl Display for PathElement<'_> {
                 write!(f, "[{l}]")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use serde_json::json;
+
+    use crate::compare_serde_values;
+    use crate::sort::sort_value;
+
+    #[test]
+    fn test_resolve() {
+        let data1 = json! {["a",{"c": ["d","f"] },"b"]};
+        let data2 = json! {["b",{"c": ["e","d"] },"a"]};
+        let diffs = compare_serde_values(&data1, &data2, true, &[]).unwrap();
+        assert!(!diffs.is_empty());
+        let data1_sorted = sort_value(&data1, &[]);
+        let data2_sorted = sort_value(&data2, &[]);
+
+        let all_diffs = diffs.all_diffs();
+        assert_eq!(all_diffs.len(), 1);
+        let (_type, diff) = all_diffs.first().unwrap();
+        let val = diff.resolve(&data1_sorted);
+        assert_eq!(val.unwrap().as_str().unwrap(), "f");
+        let val = diff.resolve(&data2_sorted);
+        assert_eq!(val.unwrap().as_str().unwrap(), "e");
     }
 }

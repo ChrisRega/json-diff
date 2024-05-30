@@ -1,6 +1,27 @@
+use std::borrow::Cow;
+
 use regex::Regex;
 use serde_json::Value;
-use std::borrow::Cow;
+
+/// Returns a deep-sorted copy of the [`serde_json::Value`]
+pub fn sort_value(v: &Value, ignore_keys: &[Regex]) -> Value {
+    match v {
+        Value::Array(a) => Value::Array(
+            preprocess_array(
+                true,
+                &a.iter().map(|e| sort_value(e, ignore_keys)).collect(),
+                ignore_keys,
+            )
+            .into_owned(),
+        ),
+        Value::Object(a) => Value::Object(
+            a.iter()
+                .map(|(k, v)| (k.clone(), sort_value(v, ignore_keys)))
+                .collect(),
+        ),
+        v => v.clone(),
+    }
+}
 
 pub(crate) fn preprocess_array<'a>(
     sort_arrays: bool,
