@@ -28,7 +28,7 @@ jobs:
 
       - name: Run grcov
         env:
-          PROJECT_NAME: "image-compare"
+          PROJECT_NAME: "json-diff"
           RUSTFLAGS: "-Cinstrument-coverage -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
           CARGO_INCREMENTAL: 0
         run: |
