@@ -19,9 +19,8 @@ jobs:
       - name: Install lcov
         run: sudo apt-get install lcov
 
-      - uses: taiki-e/cache-cargo-install-action@v2
-        with:
-          tool: grcov
+      - name: install grcov
+        run: cargo install grcov
 
       - uses: actions/checkout@v2
         with:
